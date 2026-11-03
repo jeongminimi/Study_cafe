@@ -93,6 +93,7 @@ const myNotes = [];
 const blocked = new Set();
 const lastNoteFrom = new Map();
 const lastNoteTo = new Map();
+let unseenNotes = 0;
 let net = { ok: false, send() {}, sendTo() {}, sendNote() {}, leave() {}, id: 'me' };
 let entered = false;
 
@@ -324,6 +325,13 @@ function onNote(id, text) {
   lastNoteFrom.set(id, now);
   myNotes.push({ key: now + Math.random(), id, name: from.name, text, at: now });
   syncNotes();
+  // 다른 탭을 보고 있으면 탭 제목으로 알리고, 학습 중이 아니면 짧게 안내한다. 소리는 내지 않는다.
+  if (document.hidden) {
+    unseenNotes++;
+    updateClock();
+  } else if (me.mode !== 'study' && $('noteBoard').hidden) {
+    toast(`${from.name} 님이 쪽지를 붙였어요. 아래 쪽지 버튼을 눌러 보세요.`);
+  }
 }
 
 function syncNotes() {
@@ -337,6 +345,7 @@ function syncNotes() {
 }
 
 function clearNotes() {
+  unseenNotes = 0;
   if (!myNotes.length) return;
   myNotes.length = 0;
   closeNoteBoard();
@@ -626,6 +635,8 @@ function attention(title, body) {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     flashText = '';
+    if (unseenNotes && me.mode !== 'study') toast(`보고 있지 않은 사이 쪽지 ${unseenNotes}장이 왔어요. 아래 쪽지 버튼을 눌러 보세요.`);
+    unseenNotes = 0;
     updateClock();
   }
 });
@@ -714,10 +725,17 @@ function refreshDock() {
   updateClock();
 }
 
+// 탭 제목: 타이머 알림과 새 쪽지를 번갈아 보여 준다. 쪽지 표시는 탭을 볼 때까지 사라지지 않는다.
+function setTitle(normal) {
+  const on = Math.floor(Date.now() / 1000) % 2 === 0;
+  if (flashText && on) document.title = flashText;
+  else if (unseenNotes) document.title = on ? `📝 쪽지 ${unseenNotes}` : `(${unseenNotes}) ${normal}`;
+  else document.title = normal;
+}
+
 function updateClock() {
-  const blink = flashText && Math.floor(Date.now() / 1000) % 2 === 0;
   if (session.state === 'idle') {
-    document.title = blink ? flashText : '스터디카페';
+    setTitle('스터디카페');
     return;
   }
   const { plan } = session;
@@ -731,7 +749,7 @@ function updateClock() {
   const pie = $('timerPie');
   pie.style.setProperty('--p', free ? 1 : Math.max(0, session.remainMs / session.totalMs).toFixed(4));
   pie.dataset.kind = paused ? 'paused' : session.state === 'study' ? 'study' : 'break';
-  document.title = blink ? flashText : `${text} ${name.split(' · ')[0]} · 스터디카페`;
+  setTitle(`${text} ${name.split(' · ')[0]} · 스터디카페`);
 }
 
 function refreshPeople() {
@@ -1101,7 +1119,13 @@ $('muteBtn').addEventListener('click', () => {
 function syncMute() {
   $('muteBtn').textContent = sound.muted ? '소리 켜기' : '소리 끄기';
   $('soundBtn').classList.toggle('off', sound.muted);
+  $('effectBtn').textContent = sound.effectsOn ? '효과음 끄기' : '효과음 켜기';
 }
+$('effectBtn').addEventListener('click', () => {
+  sound.setEffects(!sound.effectsOn);
+  store.set('sound2', sound.prefs());
+  syncMute();
+});
 document.querySelectorAll('[data-level]').forEach((input) => {
   const name = input.dataset.level;
   input.value = sound.levels[name];
@@ -1121,7 +1145,7 @@ document.querySelectorAll('[data-try]').forEach((b) => {
       store.set('sound2', sound.prefs());
       syncMute();
     }
-    sound[b.dataset.try](true);
+    sound[b.dataset.try]();
   });
 });
 $('npcToggle').checked = prefs.npc;

@@ -26,8 +26,8 @@ export const BEDS = { air: '잔잔한 바람', cafe: '카페 웅성임', fire: '
 const EFFECT_CEILING = 0.7;
 // 책장 소리는 매번 합성하므로, 40번 재서 가장 컸던 0.14에 여유를 둔 값을 쓴다. 크기는 0.1초 단위로 잰다.
 const PAGE_LOUDEST = 0.2;
-// 백색소음을 꺼 둔 채 ‘듣기’를 누를 때 기준으로 삼는 작은 크기.
-const PREVIEW_BED = 0.012;
+// 백색소음이 들리지 않을 때 효과음 크기의 기준으로 삼는 작은 크기.
+const QUIET_BED = 0.012;
 
 // 평소 크기: 가끔 터지는 큰 소리에 끌려가지 않도록 0.1초 단위 크기의 중앙값을 쓴다.
 const typicalOf = (buffer) => {
@@ -63,14 +63,15 @@ export class Sound {
   constructor(prefs) {
     this.levels = { noise: 0.4, pencil: 1, page: 1, ...prefs?.levels };
     this.muted = !!prefs?.muted;
-    this.bed = BEDS[prefs?.bed] ? prefs.bed : 'fire';
+    this.effectsOn = prefs?.effects !== false;
+    this.bed = BEDS[prefs?.bed] ? prefs.bed : 'cafe';
     this.fileBeds = {};
     this.bedTypical = {};
     this.timers = {};
   }
 
   prefs() {
-    return { levels: this.levels, muted: this.muted, bed: this.bed };
+    return { levels: this.levels, muted: this.muted, bed: this.bed, effects: this.effectsOn };
   }
 
   start() {
@@ -124,7 +125,7 @@ export class Sound {
 
     // 효과음은 5~10분 간격으로 불규칙하게 하나씩 나온다.
     this.loop('effect', () => rand(300, 600), () => {
-      if (this.bedLoudness() > 0) this[Math.random() < 0.5 ? 'pencil' : 'page']();
+      if (this.effectsOn) this[Math.random() < 0.5 ? 'pencil' : 'page']();
     });
   }
 
@@ -164,24 +165,31 @@ export class Sound {
   }
 
   // 슬라이더는 ‘백색소음보다 작은 범위’ 안에서의 비율이다. 그래서 어떻게 움직여도 백색소음을 넘지 않는다.
-  effectLevel(name, preview) {
+  effectLevel(name) {
     const loudest = name === 'pencil' ? this.pencilLoudest : PAGE_LOUDEST;
-    const bed = this.bedLoudness() || (preview ? PREVIEW_BED : 0);
+    const bed = this.bedLoudness() || QUIET_BED;
     return (this.levels[name] * EFFECT_CEILING * bed) / loudest;
   }
 
-  effectOutput(name, preview) {
+  effectOutput(name) {
     const gain = this.ctx.createGain();
-    gain.gain.value = this.effectLevel(name, preview);
+    gain.gain.value = this.effectLevel(name);
     gain.connect(this.clean);
-    this.effectVoice = { name, preview, gain };
+    this.effectVoice = { name, gain };
     return gain;
   }
 
-  // 효과음이 나오는 도중에 백색소음을 줄이거나 꺼도 곧바로 함께 줄어든다.
+  // 효과음이 나오는 도중에 백색소음을 줄여도 곧바로 함께 줄어든다.
   refreshEffect() {
     const voice = this.effectVoice;
-    if (voice) voice.gain.gain.setTargetAtTime(this.effectLevel(voice.name, voice.preview), this.ctx.currentTime, 0.02);
+    if (voice) voice.gain.gain.setTargetAtTime(this.effectLevel(voice.name), this.ctx.currentTime, 0.02);
+  }
+
+  setEffects(on) {
+    this.effectsOn = on;
+    if (on || !this.effectVoice) return;
+    this.effectVoice.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02);
+    this.effectVoice = null;
   }
 
   // 쉬는 시간에는 배경 소리를 절반으로 줄인다.
@@ -224,6 +232,20 @@ export class Sound {
     }
     this.airBuffer ||= this.bakeAir();
     this.playBed(this.airBuffer, this.noiseGain, this.airBuffer.duration - 0.25);
+    this.driftAir(this.bedVoice);
+  }
+
+  // 바람은 소리는 그대로 두고 크기만 슬라이더 3~5칸(100칸 기준)만큼 불규칙하게 천천히 오르내린다.
+  driftAir(voice) {
+    const tick = (up) => {
+      if (this.bedVoice !== voice) return;
+      const { noise } = this.levels;
+      const level = Math.max(0, noise + (up ? 1 : -1) * rand(0.03, 0.05));
+      voice.gain.gain.setTargetAtTime(noise > 0 ? level / noise : 1, this.ctx.currentTime, rand(1.5, 3));
+      this.timers.air = setTimeout(() => tick(!up), rand(8, 20) * 1000);
+    };
+    clearTimeout(this.timers.air);
+    this.timers.air = setTimeout(() => tick(Math.random() < 0.5), rand(4, 10) * 1000);
   }
 
   playBed(buffer, target, loopEnd) {
@@ -352,7 +374,7 @@ export class Sound {
   }
 
   // 연필: 녹음 파일을 빠르기나 음색을 바꾸지 않고 그대로 튼다.
-  async pencil(preview = false) {
+  async pencil() {
     if (!this.ctx) return;
     const clip = await this.pencilClip;
     if (!clip) return;
@@ -363,16 +385,16 @@ export class Sound {
     }
     const src = ctx.createBufferSource();
     src.buffer = clip;
-    src.connect(this.effectOutput('pencil', preview));
+    src.connect(this.effectOutput('pencil'));
     src.start();
     this.pencilSrc = src;
   }
 
   // 책장: 종이가 넘어가는 바스락 + 내려앉는 소리
-  page(preview = false) {
+  page() {
     if (!this.ctx) return;
     const { ctx } = this;
-    const out = this.effectOutput('page', preview);
+    const out = this.effectOutput('page');
     const t = ctx.currentTime + 0.02;
     const dur = rand(0.32, 0.5);
     const src = this.noiseSource(t, dur);
