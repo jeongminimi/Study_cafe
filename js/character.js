@@ -2,13 +2,25 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { SKIN, faceMap, topMap, plaidMap } from './character-art.js';
+import { HAIR, hairColor, browColor } from './config.js';
 
 const damp = (a, b, k, dt) => a + (b - a) * (1 - Math.exp(-k * dt));
 
 const LOOK = {
-  man: { scale: 1.06, headScale: 1, tagY: 1.5, hair: '#b08d5a', pants: '#34372f', shoes: '#4e2e1a', sleeve: '#4c5145', cuff: '#4c5145' },
-  woman: { scale: 0.98, headScale: 1, tagY: 1.4, hair: '#cb8c4c', pants: '#f6cfb2', shoes: '#5e3620', sleeve: '#b4d4d8', cuff: '#a3c7cc' },
-  child: { scale: 0.8, headScale: 1.14, tagY: 1.3, hair: '#c9622a', pants: '#2b2d33', shoes: '#1c1c20', sleeve: '#b6222c', cuff: '#8f1520' },
+  man: { scale: 1.06, headScale: 1, tagY: 1.5, pants: '#34372f', shoes: '#4e2e1a', sleeve: '#4c5145', cuff: '#4c5145' },
+  woman: { scale: 0.98, headScale: 1, tagY: 1.4, pants: '#f6cfb2', shoes: '#5e3620', sleeve: '#8f6242', cuff: '#7a5236' },
+  child: { scale: 0.8, headScale: 1.14, tagY: 1.3, pants: '#2b2d33', shoes: '#1c1c20', sleeve: '#b6222c', cuff: '#8f1520' },
+};
+
+// 머리 색과 안경은 사람마다 고른다. 아이는 원래 안경을 쓰지 않는다.
+export const defaultStyle = (type) => ({ hair: 'base', glasses: type !== 'child' });
+const styleOf = (type, style) => ({ ...defaultStyle(type), ...style });
+
+// 같은 옷과 얼굴은 여러 사람이 함께 쓴다.
+const shared2d = new Map();
+const once = (key, make) => {
+  if (!shared2d.has(key)) shared2d.set(key, make());
+  return shared2d.get(key);
 };
 
 const flat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.52 });
@@ -29,7 +41,7 @@ function matrixOf({ p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1] }) {
 }
 
 // 관절마다 조각을 색칠해 하나로 구워 사람 한 명당 그리기 호출을 10개 안팎으로 줄인다.
-function buildParts(type) {
+function buildParts(type, style) {
   const look = LOOK[type];
   const flatGeos = {};
   const texGeos = new Map();
@@ -74,7 +86,7 @@ function buildParts(type) {
   }
 
   // 몸통과 허리 아래
-  const topMat = textured(topMap(type));
+  const topMat = once(`top|${type}`, () => textured(topMap(type)));
   const hem = type === 'man' ? [[0.2, -0.13], [0.205, -0.03]] : [[0.17, -0.03]];
   putTex('torso', lathe([...hem, [0.2, 0.03], [0.21, 0.16], [0.2, 0.28], [0.15, 0.37], [0.075, 0.425]], 36), topMat, { s: [1, 1, 0.76] });
   put('torso', ball, look.sleeve, { p: [0, 0.42, 0], s: [0.075, 0.018, 0.058] });
@@ -90,7 +102,7 @@ function buildParts(type) {
       pos.setZ(i, pos.getZ(i) * k * 0.86);
     }
     geo.computeVertexNormals();
-    putTex('skirt', geo, textured(plaidMap('#eef0dc', '#a7c9c4', '#7fa9a5', [10, 2]), { side: THREE.DoubleSide }));
+    putTex('skirt', geo, once('skirt', () => textured(plaidMap('#d9c2a0', '#a67c52', '#6f4a2c', [10, 2]), { side: THREE.DoubleSide })));
   } else if (type === 'child') {
     put('hips', lathe([[0.15, 0.04], [0.17, -0.03], [0.178, -0.1], [0.178, -0.165]], 28), look.pants, { s: [1, 1, 0.76] });
     put('hips', new THREE.CircleGeometry(0.17, 20), look.pants, { p: [0, -0.16, 0], s: [1, 0.76, 1], r: [Math.PI / 2, 0, 0] });
@@ -114,7 +126,7 @@ function buildParts(type) {
   put('head', small, skin, { p: [0, cy - 0.04, R - 0.006], s: [0.022, 0.018, 0.02] });
   for (const s of [-1, 1]) put('head', small, skin, { p: [s * 0.2, cy - 0.015, 0], s: [0.03, 0.044, 0.026] });
 
-  const hair = look.hair;
+  const hair = hairColor(style.hair, type);
   const blob = (x, y, z, sx, sy, sz, rx = 0, ry = 0, rz = 0) => put('head', ball, hair, { p: [x, cy + y, z], s: [sx, sy, sz], r: [rx, ry, rz] });
   if (type === 'man') {
     put('head', new THREE.SphereGeometry(0.213, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.5), hair, { p: [0, cy + 0.005, -0.012], s: [1, 0.98, 1], r: [-0.34, 0, 0] });
@@ -147,14 +159,15 @@ function buildParts(type) {
   }
 
   // 안경
-  if (type !== 'child') {
+  if (style.glasses) {
     const frame = type === 'man' ? '#c9a65e' : '#26211f';
-    const y = cy - 0.016;
+    const y = cy - (type === 'child' ? 0.026 : 0.016);
     const z = 0.184;
+    const rimX = type === 'child' ? 0.081 : 0.077;
     const rimR = type === 'man' ? 0.058 : 0.056;
     for (const s of [-1, 1]) {
-      const rim = matrixOf({ p: [s * 0.077, y, z], r: [0, s * 0.38, 0] });
-      put('head', new THREE.TorusGeometry(rimR, type === 'man' ? 0.0042 : 0.0034, 8, 28), frame, { m: rim });
+      const rim = matrixOf({ p: [s * rimX, y, z], r: [0, s * 0.38, 0] });
+      put('head', new THREE.TorusGeometry(rimR, type === 'woman' ? 0.0034 : 0.0042, 8, 28), frame, { m: rim });
       if (type === 'woman') put('head', new THREE.TorusGeometry(rimR, 0.0098, 8, 18, Math.PI * 0.82), frame, { m: rim, r: [0, 0, Math.PI * 0.09] });
       put('head', new THREE.CylinderGeometry(0.0035, 0.0035, 0.17, 5), frame, { p: [s * 0.15, y + 0.006, 0.075], r: [Math.PI / 2, 0, -s * 0.28] });
     }
@@ -163,7 +176,7 @@ function buildParts(type) {
 
   // 아이의 체크 가방
   if (type === 'child') {
-    const plaid = textured(plaidMap('#b81f2a', '#2c2c33', '#f2d76a', [1.6, 1.2]));
+    const plaid = once('bag', () => textured(plaidMap('#b81f2a', '#2c2c33', '#f2d76a', [1.6, 1.2])));
     put('torso', new THREE.TorusGeometry(0.235, 0.014, 6, 44), '#7a4b28', { p: [0, 0.2, 0], s: [1, 1, 0.8], r: [0, 0, -0.78] });
     const bag = matrixOf({ p: [0.17, 0.035, 0.11], r: [0, 0.55, 0] });
     putTex('torso', new RoundedBoxGeometry(0.255, 0.19, 0.078, 3, 0.03), plaid, { m: bag });
@@ -174,17 +187,19 @@ function buildParts(type) {
   const merged = [];
   Object.entries(flatGeos).forEach(([bone, geos]) => merged.push({ bone, material: flat, geometry: mergeGeometries(geos, false) }));
   texGeos.forEach(({ bone, material, geos }) => merged.push({ bone, material, geometry: mergeGeometries(geos, false) }));
+  const brow = browColor(style.hair, type);
   return {
     merged,
     faceGeo: new THREE.SphereGeometry(R, 36, 24, -Math.PI / 2),
-    faceOn: textured(faceMap(type, false), { roughness: 0.62 }),
-    faceOff: textured(faceMap(type, true), { roughness: 0.62 }),
+    faceOn: once(`on|${type}|${brow}`, () => textured(faceMap(type, false, brow), { roughness: 0.62 })),
+    faceOff: once(`off|${type}|${brow}`, () => textured(faceMap(type, true, brow), { roughness: 0.62 })),
     faceY: cy,
   };
 }
 
-const partsByType = {};
-const getParts = (type) => (partsByType[type] ||= buildParts(type));
+const partsByKey = {};
+const styleKey = (type, style) => `${type}|${style.hair}|${style.glasses ? 1 : 0}`;
+const getParts = (type, style) => (partsByKey[styleKey(type, style)] ||= buildParts(type, style));
 
 let shared = null;
 function getShared() {
@@ -227,7 +242,7 @@ const POSES = {
 };
 
 export class Character {
-  constructor(scene, findPath, type = 'man') {
+  constructor(scene, findPath, type = 'man', style) {
     this.findPath = findPath;
     this.phase = Math.random() * 40;
     this.root = new THREE.Group();
@@ -239,15 +254,16 @@ export class Character {
     this.transition = 0;
     this.rotY = 0;
     this.pendingSeat = null;
-    this.build(type);
+    this.build(type, styleOf(type, style));
     scene.add(this.root);
   }
 
-  build(type) {
+  build(type, style) {
     const s = getShared();
-    const parts = getParts(type);
+    const parts = getParts(type, style);
     const look = LOOK[type];
     this.type = type;
+    this.key = styleKey(type, style);
     this.scale = look.scale;
     this.tagY = look.tagY;
     this.root.clear();
@@ -304,11 +320,12 @@ export class Character {
     this.applyProps();
   }
 
-  setType(type) {
-    if (type !== this.type && LOOK[type]) {
-      this.build(type);
-      if (this.state === 'seated') this.root.position.y = this.seat.y - 0.3 * this.scale;
-    }
+  setType(type, style) {
+    if (!LOOK[type]) return;
+    const next = styleOf(type, style);
+    if (styleKey(type, next) === this.key) return;
+    this.build(type, next);
+    if (this.state === 'seated') this.root.position.y = this.seat.y - 0.3 * this.scale;
   }
 
   get x() { return this.root.position.x; }
@@ -561,9 +578,10 @@ export class Character {
   }
 }
 
-// 입장 화면의 캐릭터 고르기 그림을 한 번만 그린다.
-export function renderThumbnails(types) {
-  const out = {};
+// 입장 화면의 캐릭터 고르기 그림. 입장하면 closeThumbnails로 치운다.
+let stage = null;
+function getStage() {
+  if (stage) return stage;
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(220, 260, false);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -575,16 +593,24 @@ export function renderThumbnails(types) {
   const camera = new THREE.PerspectiveCamera(24, 220 / 260, 0.1, 30);
   camera.position.set(0, 0.92, 3.6);
   camera.lookAt(0, 0.68, 0);
-  for (const type of types) {
-    const fig = new Character(scene, () => [], type);
-    fig.place(0, 0, 0.22);
-    fig.blob.visible = false;
-    fig.update(1, 0);
-    renderer.render(scene, camera);
-    out[type] = renderer.domElement.toDataURL('image/png');
-    fig.dispose(scene);
-  }
-  renderer.dispose();
-  renderer.forceContextLoss();
-  return out;
+  stage = { renderer, scene, camera };
+  return stage;
+}
+
+export function renderThumbnail(type, style) {
+  const { renderer, scene, camera } = getStage();
+  const fig = new Character(scene, () => [], type, style);
+  fig.place(0, 0, 0.22);
+  fig.blob.visible = false;
+  fig.update(1, 0);
+  renderer.render(scene, camera);
+  fig.dispose(scene);
+  return renderer.domElement.toDataURL('image/png');
+}
+
+export function closeThumbnails() {
+  if (!stage) return;
+  stage.renderer.dispose();
+  stage.renderer.forceContextLoss();
+  stage = null;
 }

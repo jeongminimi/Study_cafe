@@ -17,7 +17,7 @@ function tex(w, h, draw, repeat) {
 
 export const SKIN = { man: '#f3c7a4', woman: '#f6cfb2', child: '#f8d2b6' };
 
-export function faceMap(type, asleep) {
+export function faceMap(type, asleep, brow) {
   return tex(1024, 512, (ctx, w, h) => {
     ctx.fillStyle = SKIN[type];
     ctx.fillRect(0, 0, w, h);
@@ -49,7 +49,6 @@ export function faceMap(type, asleep) {
         ctx.arc(cx + s * dx + 4, ey - 7, 5, 0, 7);
         ctx.fill();
       }
-      const brow = { man: '#7a5a34', woman: '#a0683a', child: '#b0562a' }[type];
       ctx.strokeStyle = brow;
       ctx.lineWidth = type === 'man' ? 8 : 6;
       ctx.beginPath();
@@ -207,7 +206,7 @@ export function topMap(type) {
       ctx.stroke();
       ctx.fillStyle = '#e4cf9b';
       ctx.fillRect(cx + 150, 150, 7, 44);
-      // 오후서재 책 문양
+      // 스터디카페 책 문양
       ctx.fillStyle = '#c9a15a';
       ctx.beginPath();
       ctx.moveTo(cx - 172, 200);
@@ -218,9 +217,9 @@ export function topMap(type) {
       ctx.quadraticCurveTo(cx - 150, 228, cx - 172, 240);
       ctx.fill();
     } else if (type === 'woman') {
-      ctx.fillStyle = '#b4d4d8';
+      ctx.fillStyle = '#8f6242';
       ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = 'rgba(115,160,168,.28)';
+      ctx.strokeStyle = 'rgba(70,40,22,.28)';
       ctx.lineWidth = 2;
       for (let x = 0; x < w; x += 7) {
         ctx.beginPath();
@@ -228,9 +227,9 @@ export function topMap(type) {
         ctx.lineTo(x, h);
         ctx.stroke();
       }
-      ctx.fillStyle = '#f3f2f4';
+      ctx.fillStyle = '#f1e6d3';
       ctx.fillRect(cx - 42, 0, 84, h);
-      ctx.fillStyle = '#e2e2ea';
+      ctx.fillStyle = '#e0d2b9';
       ctx.fillRect(cx - 5, 0, 10, h);
       ctx.fillStyle = '#fff';
       for (let y = 90; y < h; y += 72) {
@@ -238,7 +237,7 @@ export function topMap(type) {
         ctx.arc(cx, y, 6, 0, 7);
         ctx.fill();
       }
-      ctx.fillStyle = '#a3c7cc';
+      ctx.fillStyle = '#7a5236';
       for (const s of [-1, 1]) ctx.fillRect(cx + s * 42 + (s < 0 ? -22 : 0), 0, 22, h);
       ctx.fillStyle = '#f5ecd2';
       for (let y = 130; y < h; y += 88) {
@@ -254,7 +253,7 @@ export function topMap(type) {
         ctx.ellipse(cx + s * 44, 30, 56, 42, s * 0.3, 0, 7);
         ctx.fill();
       }
-      ctx.fillStyle = '#a3c7cc';
+      ctx.fillStyle = '#7a5236';
       for (const s of [-1, 1]) {
         ctx.beginPath();
         ctx.moveTo(cx + s * 78, 0);

@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createCafe } from './scene.js';
-import { Character, renderThumbnails } from './character.js';
+import { Character, closeThumbnails, defaultStyle, renderThumbnail } from './character.js';
 import { Sound, BEDS } from './sound.js';
 import { connectRoom } from './net.js';
-import { CAPACITY, CHARACTERS, MAX_ROOMS, MODES, randomAuthor, cleanName, store } from './config.js';
+import { CAPACITY, CHARACTERS, HAIR, MAX_ROOMS, MODES, NOTE_GAP_MS, NOTE_LIMIT, NOTE_MAX, cleanName, cleanNote, hairColor, randomAuthor, store } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -47,6 +47,7 @@ const prefs = {
   time: store.get('time', params.get('time') || 'auto'),
   plan: { study: 50, rest: 10, sets: 4, ...store.get('plan', null) },
   notify: store.get('notify', false),
+  noteOff: store.get('noteOff', false),
 };
 
 function timeKey() {
@@ -68,6 +69,15 @@ const firstName = store.get('name', null);
 const CHAR_KEYS = Object.keys(CHARACTERS);
 const randomChar = () => CHAR_KEYS[Math.floor(Math.random() * CHAR_KEYS.length)];
 const savedChar = store.get('char', null);
+// 캐릭터마다 머리 색과 안경을 따로 기억한다.
+const savedLooks = store.get('looks', {});
+const looks = Object.fromEntries(CHAR_KEYS.map((type) => {
+  const saved = savedLooks[type] || {};
+  return [type, {
+    hair: Object.hasOwn(HAIR, saved.hair) ? saved.hair : 'base',
+    glasses: typeof saved.glasses === 'boolean' ? saved.glasses : defaultStyle(type).glasses,
+  }];
+}));
 const me = {
   id: 'me', isMe: true, name: firstName || randomAuthor(), char: CHARACTERS[savedChar] ? savedChar : randomChar(), seat: -1, mode: 'stand',
   sitAt: 0, joinedAt: 0, fig: null, tag: null, target: { ...cafe.spawn },
@@ -77,7 +87,12 @@ const me = {
 const session = { state: 'idle', plan: null, set: 1, remainMs: 0, totalMs: 0, elapsedMs: 0, studiedMs: 0 };
 const others = new Map();
 const npcs = [];
-let net = { ok: false, send() {}, sendTo() {}, leave() {}, id: 'me' };
+// 내 자리에 붙은 쪽지. 서버가 없으므로 이번 접속 동안 자리에 앉아 있을 때만 남는다.
+const myNotes = [];
+const blocked = new Set();
+const lastNoteFrom = new Map();
+const lastNoteTo = new Map();
+let net = { ok: false, send() {}, sendTo() {}, sendNote() {}, leave() {}, id: 'me' };
 let entered = false;
 
 function makeTag(person, kind) {
@@ -125,9 +140,11 @@ function npcMode() {
 
 function addNpc(seatIndex) {
   const taken = [me.name, ...npcs.map((n) => n.name)];
+  const hairKeys = Object.keys(HAIR);
+  const style = { hair: hairKeys[Math.floor(Math.random() * hairKeys.length)], glasses: Math.random() < 0.4 };
   const npc = {
     isNpc: true, name: randomAuthor(taken), seat: seatIndex, mode: npcMode(),
-    fig: new Character(scene, cafe.findPath, randomChar()), next: performance.now() + 30000 + Math.random() * 120000,
+    fig: new Character(scene, cafe.findPath, randomChar(), style), next: performance.now() + 30000 + Math.random() * 120000,
   };
   npc.fig.placeSeated(seats[seatIndex], npc.mode);
   makeTag(npc, 'npc');
@@ -173,7 +190,8 @@ function tickNpcs(now) {
 // ───── 네트워크 상태 ─────
 function myPacket() {
   return {
-    n: me.name, c: me.char, s: me.seat, m: me.seat >= 0 ? me.mode : 'stand',
+    n: me.name, c: me.char, h: myLook().hair, g: myLook().glasses, s: me.seat, m: me.seat >= 0 ? me.mode : 'stand',
+    k: myNotes.length, o: prefs.noteOff,
     x: +me.target.x.toFixed(2), z: +me.target.z.toFixed(2),
     a: me.sitAt, j: me.joinedAt, t: Math.floor(me.studyMs / 60000),
   };
@@ -187,14 +205,14 @@ function onPeerState(id, d) {
   let p = others.get(id);
   const fresh = !p;
   if (fresh) {
-    p = { id, fig: new Character(scene, cafe.findPath, d.char), seat: -1, mode: 'stand' };
+    p = { id, fig: new Character(scene, cafe.findPath, d.char, d), seat: -1, mode: 'stand' };
     others.set(id, p);
     makeTag(p, 'peer');
   }
-  p.fig.setType(d.char);
+  p.fig.setType(d.char, d);
   const changedSeat = p.seat !== d.seat;
   const prevMode = p.mode;
-  Object.assign(p, { name: d.name, sitAt: d.sitAt, joinedAt: d.joinedAt, todayMin: d.todayMin, tx: d.x, tz: d.z });
+  Object.assign(p, { name: d.name, notes: d.notes, noteOff: d.noteOff, sitAt: d.sitAt, joinedAt: d.joinedAt, todayMin: d.todayMin, tx: d.x, tz: d.z });
 
   if (d.seat >= 0) {
     // 같은 자리를 동시에 고르면 먼저 앉은 사람이 자리를 지킨다.
@@ -235,6 +253,8 @@ function onPeerLeft(id) {
   if (!p) return;
   removePerson(p);
   others.delete(id);
+  if (noteTarget === p) closeNoteWrite();
+  if (!$('noteBoard').hidden) renderNoteBoard();
   refreshPeople();
 }
 
@@ -256,14 +276,14 @@ function sitDown(i) {
   }
   if (owner?.isNpc) evictNpc(i);
   endSession();
+  clearNotes();
   me.seat = i;
   me.sitAt = Date.now();
   me.mode = 'rest';
   me.target = { ...seats[i].approach };
   me.fig.goSit(seats[i], 'rest', () => {
     refreshDock();
-    // 앉으면 바로 학습 설정을 띄운다. 닫으면 쉬는 상태로 앉아 있는다.
-    if (me.seat === i && session.state === 'idle') openStudyDialog();
+    if (me.seat === i) toast('휴식 상태로 앉았어요. 공부를 시작하려면 아래 학습 버튼을 누르세요.');
   });
   renderTag(me);
   refreshDock();
@@ -274,6 +294,7 @@ function leaveSeat(silent) {
   if (me.seat < 0) return;
   endSession();
   closeStudyDialog();
+  clearNotes();
   me.target = { ...seats[me.seat].approach };
   me.seat = -1;
   me.mode = 'stand';
@@ -290,6 +311,146 @@ function setMyMode(mode) {
   renderTag(me);
   refreshDock();
   broadcast();
+}
+
+// ───── 쪽지 ─────
+function onNote(id, text) {
+  const from = others.get(id);
+  const now = Date.now();
+  // 보낸 쪽의 제한은 믿을 수 없으므로 받는 쪽에서 다시 막는다. 이름도 받은 값이 아닌 접속 정보에서 찾는다.
+  if (!from || prefs.noteOff || blocked.has(id) || me.seat < 0 || myNotes.length >= NOTE_LIMIT) return;
+  if (now - (lastNoteFrom.get(id) || 0) < NOTE_GAP_MS * 0.8) return;
+  lastNoteFrom.set(id, now);
+  myNotes.push({ key: now + Math.random(), id, name: from.name, text, at: now });
+  syncNotes();
+}
+
+function syncNotes() {
+  refreshDock();
+  refreshSeatProps();
+  if (!$('noteBoard').hidden) {
+    if (myNotes.length) renderNoteBoard();
+    else closeNoteBoard();
+  }
+  broadcast();
+}
+
+function clearNotes() {
+  if (!myNotes.length) return;
+  myNotes.length = 0;
+  closeNoteBoard();
+  toast('자리를 옮겨 붙어 있던 쪽지가 사라졌어요.');
+  syncNotes();
+}
+
+function removeNote(key) {
+  const i = myNotes.findIndex((n) => n.key === key);
+  if (i >= 0) myNotes.splice(i, 1);
+  syncNotes();
+}
+
+function blockSender(id, name) {
+  blocked.add(id);
+  for (let i = myNotes.length - 1; i >= 0; i--) if (myNotes[i].id === id) myNotes.splice(i, 1);
+  toast(`${name} 님의 쪽지를 이번 접속 동안 받지 않아요.`);
+  syncNotes();
+}
+
+let noteTarget = null;
+function openNoteWrite(person) {
+  if (person.seat < 0) {
+    toast(`${person.name} 님은 지금 자리에 앉아 있지 않아요.`);
+    return;
+  }
+  if (person.noteOff) {
+    toast(`${person.name} 님은 쪽지를 받지 않아요.`);
+    return;
+  }
+  if (person.notes >= NOTE_LIMIT) {
+    toast(`${person.name} 님의 자리에 쪽지가 가득 찼어요.`);
+    return;
+  }
+  closeStudyDialog();
+  closeNoteBoard();
+  togglePanel(null);
+  noteTarget = person;
+  $('noteWriteTitle').textContent = `${person.name} 님에게 쪽지`;
+  $('noteText').value = '';
+  syncNoteCount();
+  $('noteWrite').hidden = false;
+  $('noteText').focus({ preventScroll: true });
+}
+
+function closeNoteWrite() {
+  noteTarget = null;
+  $('noteWrite').hidden = true;
+}
+
+function syncNoteCount() {
+  const length = $('noteText').value.length;
+  $('noteCount').textContent = `${length}/${NOTE_MAX}`;
+  $('noteSend').disabled = !$('noteText').value.trim();
+}
+
+function sendNote() {
+  const person = noteTarget;
+  if (!person) return;
+  const text = cleanNote($('noteText').value);
+  if (!text) {
+    toast('이 내용은 보낼 수 없어요. 다시 써 주세요.');
+    return;
+  }
+  if (person.seat < 0) {
+    toast(`${person.name} 님이 자리를 떠났어요.`);
+    closeNoteWrite();
+    return;
+  }
+  const wait = NOTE_GAP_MS - (Date.now() - (lastNoteTo.get(person.id) || 0));
+  if (wait > 0) {
+    toast(`같은 분에게는 ${Math.ceil(wait / 1000)}초 뒤에 다시 보낼 수 있어요.`);
+    return;
+  }
+  lastNoteTo.set(person.id, Date.now());
+  net.sendNote(text, person.id);
+  closeNoteWrite();
+  toast(`${person.name} 님에게 쪽지를 보냈어요.`);
+}
+
+function openNoteBoard() {
+  closeStudyDialog();
+  closeNoteWrite();
+  togglePanel(null);
+  renderNoteBoard();
+  $('noteBoard').hidden = false;
+}
+
+function closeNoteBoard() {
+  $('noteBoard').hidden = true;
+}
+
+function renderNoteBoard() {
+  $('noteList').replaceChildren(...myNotes.map((note) => {
+    const li = document.createElement('li');
+    const from = document.createElement('strong');
+    from.textContent = `${note.name} 님`;
+    const text = document.createElement('p');
+    text.textContent = note.text;
+    const actions = document.createElement('div');
+    actions.className = 'note-actions';
+    const button = (label, run) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.addEventListener('click', run);
+      actions.append(b);
+    };
+    button('떼기', () => removeNote(note.key));
+    const sender = others.get(note.id);
+    if (sender) button('답장', () => openNoteWrite(sender));
+    button('차단', () => blockSender(note.id, note.name));
+    li.append(from, text, actions);
+    return li;
+  }));
 }
 
 // ───── 학습 세션 ─────
@@ -451,7 +612,7 @@ function attention(title, body) {
   flashText = `⏰ ${title}`;
   if (prefs.notify && window.Notification?.permission === 'granted') {
     try {
-      const n = new Notification(`오후서재 · ${title}`, { body, tag: 'ohuseojae-timer' });
+      const n = new Notification(`스터디카페 · ${title}`, { body, tag: 'ohuseojae-timer' });
       n.onclick = () => {
         window.focus();
         n.close();
@@ -510,6 +671,7 @@ function walkMe(x, z) {
   if (me.seat >= 0) {
     endSession();
     closeStudyDialog();
+    clearNotes();
     me.seat = -1;
     me.mode = 'stand';
     renderTag(me);
@@ -543,6 +705,8 @@ function refreshDock() {
   $('dockSeat').hidden = !seated;
   $('timer').hidden = !seated || session.state === 'idle';
   $('seatLabel').textContent = seated ? `${seats[me.seat].zone} ${me.seat + 1}번` : '';
+  $('noteBtn').hidden = !seated || !myNotes.length;
+  $('noteBtnCount').textContent = myNotes.length;
   document.querySelectorAll('[data-mode]').forEach((b) => {
     b.setAttribute('aria-pressed', b.dataset.mode === me.mode ? 'true' : 'false');
   });
@@ -552,7 +716,7 @@ function refreshDock() {
 function updateClock() {
   const blink = flashText && Math.floor(Date.now() / 1000) % 2 === 0;
   if (session.state === 'idle') {
-    document.title = blink ? flashText : '오후서재';
+    document.title = blink ? flashText : '스터디카페';
     return;
   }
   const { plan } = session;
@@ -566,7 +730,7 @@ function updateClock() {
   const pie = $('timerPie');
   pie.style.setProperty('--p', free ? 1 : Math.max(0, session.remainMs / session.totalMs).toFixed(4));
   pie.dataset.kind = paused ? 'paused' : session.state === 'study' ? 'study' : 'break';
-  document.title = blink ? flashText : `${text} ${name.split(' · ')[0]} · 오후서재`;
+  document.title = blink ? flashText : `${text} ${name.split(' · ')[0]} · 스터디카페`;
 }
 
 function refreshPeople() {
@@ -591,6 +755,14 @@ function refreshPeople() {
     const m = p.isMe ? Math.floor(me.studyMs / 60000) : p.todayMin || 0;
     mins.textContent = m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`;
     li.append(name, state, mins);
+    if (!p.isMe && p.seat >= 0 && !p.noteOff) {
+      const write = document.createElement('button');
+      write.className = 'ghost p-note';
+      write.textContent = '쪽지';
+      write.setAttribute('aria-label', `${p.name} 님에게 쪽지 쓰기`);
+      write.addEventListener('click', () => openNoteWrite(p));
+      li.append(write);
+    }
     list.append(li);
   }
   const npcNote = $('npcNote');
@@ -615,19 +787,51 @@ function applyName(value) {
   return true;
 }
 
+function myLook() {
+  return looks[me.char];
+}
+
 function setCharacter(type) {
   if (!CHARACTERS[type]) return;
   me.char = type;
   store.set('char', type);
-  me.fig?.setType(type);
+  me.fig?.setType(type, myLook());
+  syncCharacter();
+  broadcast();
+}
+
+function setLook(patch) {
+  Object.assign(myLook(), patch);
+  store.set('looks', looks);
+  me.fig?.setType(me.char, myLook());
+  drawThumb(me.char);
   syncCharacter();
   broadcast();
 }
 
 function syncCharacter() {
+  const look = myLook();
   document.querySelectorAll('[data-char]').forEach((b) => {
     b.setAttribute('aria-pressed', b.dataset.char === me.char ? 'true' : 'false');
   });
+  document.querySelectorAll('[data-hair]').forEach((b) => {
+    b.style.setProperty('--swatch', hairColor(b.dataset.hair, me.char));
+    b.setAttribute('aria-pressed', b.dataset.hair === look.hair ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-glasses]').forEach((b) => {
+    b.setAttribute('aria-pressed', look.glasses ? 'true' : 'false');
+  });
+}
+
+function drawThumb(type) {
+  if (entered) return;
+  const img = document.querySelector(`.char-pick [data-char="${type}"] img`);
+  try {
+    img.src = renderThumbnail(type, looks[type]);
+    img.hidden = false;
+  } catch (err) {
+    console.warn('캐릭터 그림을 만들지 못했습니다', err);
+  }
 }
 
 function refreshRings() {
@@ -649,6 +853,7 @@ function refreshSeatProps() {
     if (s.book) s.book.visible = !!p && (p.mode === 'study' || p.mode === 'sleep');
     if (s.mug) s.mug.visible = !!p;
     s.lampSet?.(!!p && p.mode === 'study');
+    s.setNotes(!p || p.isNpc ? 0 : p.isMe ? myNotes.length : p.notes || 0);
   });
   const everyone = [...others.values(), ...npcs];
   sound.setActivity({
@@ -710,7 +915,11 @@ let lastInput = 0;
 function pick(e) {
   pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(pointer, camera);
-  return ray.intersectObjects(cafe.pickables, false)[0] || null;
+  // 쪽지가 없는 자리의 쪽지 영역은 건너뛴다.
+  return ray.intersectObjects(cafe.pickables, false).find(({ object }) => {
+    const spot = object.userData.noteSeat;
+    return spot === undefined || seats[spot].noteCount > 0;
+  }) || null;
 }
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -725,9 +934,16 @@ canvas.addEventListener('pointerup', (e) => {
   if (moved > 7) return;
   const hit = pick(e);
   if (!hit) return;
-  if (hit.object.userData.seat !== undefined) {
-    if (me.seat === hit.object.userData.seat) return;
-    sitDown(hit.object.userData.seat);
+  const seatI = hit.object.userData.seat ?? hit.object.userData.noteSeat;
+  if (seatI !== undefined) {
+    const owner = seatOwner(seatI);
+    if (owner?.isMe) {
+      if (myNotes.length) openNoteBoard();
+    } else if (owner && !owner.isNpc) {
+      openNoteWrite(owner);
+    } else {
+      sitDown(seatI);
+    }
   } else if (hit.object.userData.floor) {
     walkMe(hit.point.x, hit.point.z);
   }
@@ -735,7 +951,7 @@ canvas.addEventListener('pointerup', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   if (!entered || e.buttons) return;
   const hit = pick(e);
-  const seatI = hit?.object.userData.seat;
+  const seatI = hit?.object.userData.seat ?? hit?.object.userData.noteSeat;
   canvas.style.cursor = seatI !== undefined ? 'pointer' : 'grab';
 });
 canvas.addEventListener('wheel', () => { lastInput = performance.now(); }, { passive: true });
@@ -809,6 +1025,8 @@ addEventListener('keydown', (e) => {
   if (!entered) return;
   if (e.key === 'Escape') {
     closeStudyDialog();
+    closeNoteWrite();
+    closeNoteBoard();
     return;
   }
   if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || !$('studyDialog').hidden) return;
@@ -958,15 +1176,41 @@ $('nameReroll').addEventListener('click', () => {
 document.querySelectorAll('[data-char]').forEach((b) => {
   b.addEventListener('click', () => setCharacter(b.dataset.char));
 });
-try {
-  const thumbs = renderThumbnails(CHAR_KEYS);
-  document.querySelectorAll('.char-pick img').forEach((img) => {
-    img.src = thumbs[img.closest('[data-char]').dataset.char];
-    img.hidden = false;
+document.querySelectorAll('.hair-pick').forEach((row) => {
+  Object.entries(HAIR).forEach(([key, { label }]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.hair = key;
+    b.title = label;
+    b.setAttribute('aria-label', `머리 색 ${label}`);
+    b.addEventListener('click', () => setLook({ hair: key }));
+    row.append(b);
   });
-} catch (err) {
-  console.warn('캐릭터 그림을 만들지 못했습니다', err);
-}
+});
+document.querySelectorAll('[data-glasses]').forEach((b) => {
+  b.addEventListener('click', () => setLook({ glasses: !myLook().glasses }));
+});
+CHAR_KEYS.forEach(drawThumb);
+
+// 쪽지 입력
+$('noteText').maxLength = NOTE_MAX;
+$('noteText').addEventListener('input', syncNoteCount);
+$('noteText').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault();
+    sendNote();
+  }
+});
+$('noteSend').addEventListener('click', sendNote);
+$('noteWriteClose').addEventListener('click', closeNoteWrite);
+$('noteBoardClose').addEventListener('click', closeNoteBoard);
+$('noteBtn').addEventListener('click', openNoteBoard);
+$('noteOffToggle').checked = prefs.noteOff;
+$('noteOffToggle').addEventListener('change', (e) => {
+  prefs.noteOff = e.target.checked;
+  store.set('noteOff', prefs.noteOff);
+  broadcast();
+});
 
 // 입장 화면
 $('entryName').value = me.name;
@@ -983,7 +1227,8 @@ $('entryForm').addEventListener('submit', async (e) => {
   $('entry').hidden = true;
   $('hud').hidden = false;
   me.joinedAt = Date.now();
-  me.fig = new Character(scene, cafe.findPath, me.char);
+  closeThumbnails();
+  me.fig = new Character(scene, cafe.findPath, me.char, myLook());
   me.fig.place(cafe.spawn.x, cafe.spawn.z, Math.PI);
   makeTag(me, 'mine');
   entered = true;
@@ -1002,6 +1247,7 @@ async function connect() {
     room,
     seatCount: seats.length,
     onState: onPeerState,
+    onNote,
     onLeave: onPeerLeft,
     onJoin: (id) => net.sendTo(myPacket(), id),
   });
@@ -1017,7 +1263,95 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   lastInput = performance.now();
+  if (topOn && !topMove) {
+    controls.maxDistance = topHeight() * 1.15;
+    controls.target.set(0, 0, 0);
+    topPosition(camera.position);
+  }
 });
+
+// ───── 위에서 보기 ─────
+const TOP_SECONDS = 0.9;
+let topOn = false;
+let topMove = null;
+const backOffset = new THREE.Vector3();
+
+// 화면 비율에 맞춰 카페 바닥 전체가 들어오는 높이. 세로 화면은 카페를 눕혀서 보여 준다.
+function topHeight() {
+  const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const across = camera.aspect < 1 ? 19 : 27;
+  const along = camera.aspect < 1 ? 27 : 19;
+  return Math.max((along * 1.22) / (2 * tan), (across * 1.06) / (2 * tan * camera.aspect));
+}
+
+function topPosition(p) {
+  const turn = camera.aspect < 1 ? Math.PI / 2 : 0;
+  return p.set(Math.sin(turn) * 0.01, topHeight(), Math.cos(turn) * 0.01);
+}
+
+function clampToRoom(p) {
+  p.x = Math.max(-12.4, Math.min(12.4, p.x));
+  p.z = Math.max(-8.4, Math.min(8.05, p.z));
+  p.y = Math.max(0.5, Math.min(p.z > 6.9 ? 3.25 : 5.7, p.y));
+  return p;
+}
+
+function setOrbitForTop(on) {
+  controls.enablePan = on;
+  controls.enableRotate = !on;
+  controls.minPolarAngle = on ? 0 : 0.35;
+  controls.maxPolarAngle = on ? 0.001 : 1.5;
+  controls.minDistance = on ? 5 : 2.4;
+  controls.maxDistance = on ? topHeight() * 1.15 : 15;
+  controls.mouseButtons.LEFT = on ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+  controls.touches.ONE = on ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
+}
+
+function setTopView(on) {
+  if (on === topOn || !entered) return;
+  topOn = on;
+  flyIn = 0;
+  controls.enabled = false;
+  lastInput = performance.now();
+  $('viewBtn').setAttribute('aria-pressed', String(on));
+  $('viewTop').hidden = on;
+  $('viewBack').hidden = !on;
+  const toTarget = new THREE.Vector3();
+  const toPos = new THREE.Vector3();
+  if (on) {
+    backOffset.copy(camera.position).sub(controls.target);
+    cafe.setRoof(false);
+    topPosition(toPos);
+  } else {
+    toTarget.set(me.fig.x, me.fig.root.position.y + 1.05, me.fig.z);
+    toPos.copy(toTarget).add(backOffset);
+  }
+  topMove = {
+    t: matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 0,
+    fromPos: camera.position.clone(),
+    fromTarget: controls.target.clone(),
+    toPos,
+    showPos: on ? toPos : clampToRoom(toPos.clone()),
+    toTarget,
+  };
+}
+
+function stepTopMove(dt) {
+  const m = topMove;
+  m.t = Math.min(1, m.t + dt / TOP_SECONDS);
+  const e = m.t * m.t * (3 - 2 * m.t);
+  camera.position.lerpVectors(m.fromPos, m.showPos, e);
+  controls.target.lerpVectors(m.fromTarget, m.toTarget, e);
+  lastInput = performance.now();
+  if (m.t < 1) return;
+  topMove = null;
+  camera.position.copy(m.toPos);
+  setOrbitForTop(topOn);
+  if (!topOn) cafe.setRoof(true);
+  controls.enabled = true;
+  controls.update();
+}
+$('viewBtn').addEventListener('click', () => setTopView(!topOn));
 
 let lastFrame = performance.now();
 const followTo = new THREE.Vector3();
@@ -1041,7 +1375,7 @@ function placeTag(p) {
   const y = (-headPos.y * 0.5 + 0.5) * innerHeight;
   p.tag.style.transform = `translate(-50%,-100%) translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
   const base = p.isMe ? 1 : p.isNpc ? 0.7 : 0.95;
-  p.tag.style.opacity = dist > 19 ? base * 0.45 : base;
+  p.tag.style.opacity = dist > 19 && !topOn ? base * 0.45 : base;
 }
 
 function animate() {
@@ -1060,7 +1394,15 @@ function animate() {
   npcs.forEach((p) => p.fig.update(dt, time));
   cafe.tick(time);
 
-  if (entered && me.fig) {
+  if (topMove) {
+    stepTopMove(dt);
+  } else if (topOn) {
+    // 내려다보는 동안에는 나를 따라가지 않고, 카페 밖으로 너무 멀리 밀리지 않게만 막는다.
+    delta.copy(controls.target);
+    controls.target.x = Math.max(-13, Math.min(13, controls.target.x));
+    controls.target.z = Math.max(-9, Math.min(9, controls.target.z));
+    camera.position.add(delta.subVectors(controls.target, delta));
+  } else if (entered && me.fig) {
     followTo.set(me.fig.x, me.fig.root.position.y + 1.05, me.fig.z);
     delta.copy(followTo).sub(controls.target).multiplyScalar(1 - Math.exp(-(flyIn > 0 ? 2.2 : 5) * dt));
     controls.target.add(delta);
@@ -1076,14 +1418,18 @@ function animate() {
     camera.position.x = 10.5 + Math.sin(time * 0.12) * 1.1;
     camera.position.z = 7.6 + Math.cos(time * 0.09) * 0.45;
   }
-  controls.update();
+  if (!topMove) controls.update();
 
   // 카메라가 벽 밖으로 나가면 렌더할 때만 안쪽으로 당긴다 (궤도 거리는 유지).
   saved.copy(camera.position);
-  camera.position.x = Math.max(-12.4, Math.min(12.4, camera.position.x));
-  camera.position.z = Math.max(-8.4, Math.min(8.05, camera.position.z));
-  camera.position.y = Math.max(0.5, Math.min(camera.position.z > 6.9 ? 3.25 : 5.7, camera.position.y));
+  if (!topOn && !topMove) clampToRoom(camera.position);
   camera.lookAt(controls.target);
+  // 천장을 걷어 낸 동안 시간대가 바뀌면 천장 그림자까지 넣어 구운 뒤 다시 그린다.
+  if (renderer.shadowMap.needsUpdate && (topOn || topMove)) {
+    cafe.setRoof(true);
+    renderer.render(scene, camera);
+    cafe.setRoof(false);
+  }
   renderer.render(scene, camera);
   renderer.shadowMap.needsUpdate = false;
 
@@ -1103,5 +1449,5 @@ $('entry').hidden = false;
 animate();
 
 if (params.has('debug')) {
-  window.__cafe = { me, others, npcs, seats, sound, sitDown, setMyMode, leaveSeat, walkMe, onPeerState, camera, controls, renderer, session, prefs, get net() { return net; } };
+  window.__cafe = { me, others, npcs, seats, sound, sitDown, setMyMode, leaveSeat, walkMe, onPeerState, onNote, myNotes, setTopView, camera, controls, renderer, session, prefs, get net() { return net; } };
 }

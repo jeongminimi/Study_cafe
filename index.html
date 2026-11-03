@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>오후서재</title>
+<title>스터디카페</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="말없이 같이 공부하는 3D 온라인 스터디카페">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,18 +20,22 @@
 <canvas id="scene" aria-label="3D 스터디카페 공간. 빈자리를 누르면 앉습니다."></canvas>
 <div id="tags" aria-hidden="true"></div>
 
-<div id="loading" class="center-note">오후서재 문을 여는 중</div>
+<div id="loading" class="center-note">스터디카페 문을 여는 중</div>
 <div id="nogl" class="center-note" hidden>이 브라우저에서는 3D 화면을 열 수 없어요. 최신 Chrome, Edge, Safari에서 다시 열어 주세요.</div>
 
 <section id="entry" hidden>
   <form id="entryForm" class="entry-card">
     <p class="eyebrow"><span id="entryRoom">1관</span> · 정원 20명</p>
-    <h1>오후서재</h1>
+    <h1>스터디카페</h1>
     <p class="lede">말없이 같이 공부하는 3D 스터디카페예요. 캐릭터를 고르고 자리에 앉아 보세요.</p>
     <div class="char-pick" role="group" aria-label="캐릭터 고르기">
       <button type="button" data-char="man"><img alt="" hidden><span>남</span></button>
       <button type="button" data-char="woman"><img alt="" hidden><span>여</span></button>
       <button type="button" data-char="child"><img alt="" hidden><span>아이</span></button>
+    </div>
+    <div class="look-row">
+      <div class="hair-pick" role="group" aria-label="머리 색 고르기"></div>
+      <button type="button" class="glasses-btn" data-glasses>안경</button>
     </div>
     <label for="entryName">오늘의 작가 이름</label>
     <div class="name-row">
@@ -40,14 +44,14 @@
     </div>
     <p class="hint" id="entryHint">유명 작가 이름을 무작위로 골랐어요. 직접 고쳐도 돼요.</p>
     <button type="submit" class="block-btn block-btn-yellow enter">입장하기</button>
-    <p class="fine">다른 사람에게는 닉네임, 자리, 상태, 오늘 공부한 시간만 보여요. 채팅은 없어요. 서버 없이 브라우저끼리 직접 연결되기 때문에 같은 방 사람의 브라우저가 내 IP 주소를 받을 수 있어요.</p>
+    <p class="fine">다른 사람에게는 닉네임, 캐릭터, 자리, 상태, 오늘 공부한 시간만 보여요. 채팅 대신 앉아 있는 사람에게 짧은 쪽지를 붙일 수 있어요. 서버 없이 브라우저끼리 직접 연결되기 때문에 같은 방 사람의 브라우저가 내 IP 주소를 받을 수 있어요.</p>
   </form>
 </section>
 
 <div id="hud" hidden>
   <header class="top-left bar">
     <button id="leaveBtn" class="icon-btn" aria-label="입장 화면으로 나가기" title="나가기">←</button>
-    <strong class="brand">오후서재</strong>
+    <strong class="brand">스터디카페</strong>
     <label class="sr" for="roomSelect">방 선택</label>
     <select id="roomSelect"></select>
     <span class="count" title="지금 이 관에 있는 실제 사람"><b id="countNow">1</b>/<span id="countMax">20</span></span>
@@ -55,8 +59,9 @@
   </header>
 
   <div class="top-right bar">
-    <button id="peopleBtn" class="text-btn" aria-expanded="false">함께 <span id="peopleCount">1명</span></button>
+    <button id="peopleBtn" class="text-btn" aria-expanded="false"><span class="wide-only">함께 </span><span id="peopleCount">1명</span></button>
     <button id="soundBtn" class="text-btn" aria-expanded="false">소리<span id="soundNow" class="sound-now"></span><span id="soundDot" class="sound-dot" hidden></span></button>
+    <button id="viewBtn" class="text-btn" aria-pressed="false"><span id="viewTop">위에서<span class="wide-only"> 보기</span></span><span id="viewBack" hidden>원래<span class="wide-only"> 시점</span></span></button>
     <button id="inviteBtn" class="text-btn">초대</button>
   </div>
 
@@ -74,7 +79,12 @@
         <button data-char="woman">여</button>
         <button data-char="child">아이</button>
       </div>
+      <div class="look-row">
+        <div class="hair-pick" role="group" aria-label="머리 색 고르기"></div>
+        <button type="button" class="glasses-btn" data-glasses>안경</button>
+      </div>
     </div>
+    <label class="check"><input type="checkbox" id="noteOffToggle"> 쪽지 받지 않기</label>
     <p class="today">오늘 공부한 시간 <b id="todayTotal">0분</b></p>
     <ul id="peopleList"></ul>
     <p id="npcNote" class="fine" hidden></p>
@@ -186,11 +196,27 @@
     <div id="alertActions" class="alert-actions"></div>
   </section>
 
+  <section id="noteWrite" class="note-dialog" role="dialog" aria-labelledby="noteWriteTitle" hidden>
+    <div class="panel-head"><h2 id="noteWriteTitle"></h2><button id="noteWriteClose" class="tip-close" aria-label="닫기">×</button></div>
+    <textarea id="noteText" rows="3" placeholder="짧게 남겨 보세요" aria-label="쪽지 내용"></textarea>
+    <div class="note-foot">
+      <span id="noteCount">0/60</span>
+      <button id="noteSend" class="block-btn block-btn-navy" disabled>자리에 붙이기</button>
+    </div>
+  </section>
+
+  <section id="noteBoard" class="note-dialog" role="dialog" aria-labelledby="noteBoardTitle" hidden>
+    <div class="panel-head"><h2 id="noteBoardTitle">내 자리에 붙은 쪽지</h2><button id="noteBoardClose" class="tip-close" aria-label="닫기">×</button></div>
+    <ul id="noteList"></ul>
+    <p class="note-hint">쪽지는 자리에서 일어나거나 나가면 사라져요.</p>
+  </section>
+
   <nav class="dock">
     <div id="dockStand">
       <button id="findSeat" class="block-btn block-btn-yellow">가까운 빈자리에 앉기</button>
     </div>
     <div id="dockSeat" hidden>
+      <button id="noteBtn" class="block-btn block-btn-yellow" hidden>쪽지 <span id="noteBtnCount">0</span></button>
       <button class="block-btn block-btn-blue" data-mode="study" aria-pressed="false">학습<kbd>1</kbd></button>
       <button class="block-btn block-btn-green" data-mode="rest" aria-pressed="false">휴식<kbd>2</kbd></button>
       <button class="block-btn block-btn-red" data-mode="phone" aria-pressed="false">핸드폰<kbd>3</kbd></button>

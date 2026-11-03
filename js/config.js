@@ -2,6 +2,20 @@ export const CAPACITY = 20;
 export const MAX_ROOMS = 9;
 export const APP_ID = 'ohuseojae-study-cafe-v1';
 export const CHARACTERS = { man: '남', woman: '여', child: '아이' };
+export const NOTE_MAX = 60;
+export const NOTE_LIMIT = 6;
+export const NOTE_GAP_MS = 30000;
+
+// 'base'는 캐릭터마다 원래 정해진 머리 색이다.
+export const HAIR = {
+  base: { label: '기본', color: { man: '#b08d5a', woman: '#cb8c4c', child: '#c9622a' }, brow: { man: '#7a5a34', woman: '#a0683a', child: '#b0562a' } },
+  black: { label: '검정', color: '#2a2422', brow: '#1f1a18' },
+  brown: { label: '진갈색', color: '#5b3a25', brow: '#3f2718' },
+  blond: { label: '금색', color: '#d9b565', brow: '#9c7a3e' },
+  auburn: { label: '적갈색', color: '#8a3f26', brow: '#5f2a18' },
+};
+export const hairColor = (hair, type) => HAIR[hair].color[type] || HAIR[hair].color;
+export const browColor = (hair, type) => HAIR[hair].brow[type] || HAIR[hair].brow;
 
 export const AUTHORS = [
   '윤동주', '박경리', '박완서', '김유정', '이상', '황순원', '이육사', '현진건', '나혜석', '백석',
@@ -30,6 +44,14 @@ export function cleanName(value) {
   const name = value.replace(/[\p{C}<>]/gu, '').trim().slice(0, 12);
   const squashed = name.replace(/\s/g, '').toLowerCase();
   return BLOCKED.some((word) => squashed.includes(word)) ? '' : name;
+}
+
+// 내가 쓴 쪽지와 다른 사람이 보낸 쪽지 모두 이 함수를 거친다.
+export function cleanNote(value) {
+  if (typeof value !== 'string') return '';
+  const text = value.replace(/[\p{C}<>]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX);
+  const squashed = text.replace(/\s/g, '').toLowerCase();
+  return BLOCKED.some((word) => squashed.includes(word)) ? '' : text;
 }
 
 export const store = {

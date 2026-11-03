@@ -91,6 +91,21 @@ function concreteTexture(tone = 170) {
   }, { repeat: [3, 2] });
 }
 
+function noteTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffe14d';
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = '#f2c81f';
+  ctx.fillRect(0, 0, 64, 12);
+  ctx.fillStyle = '#5c4a12';
+  for (const [y, w] of [[24, 44], [36, 48], [48, 30]]) ctx.fillRect(9, y, w, 4);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function glowTexture() {
   return canvasTexture(128, 128, (ctx, w) => {
     const g = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
@@ -170,8 +185,8 @@ function paintOutside(ctx, w, h, key) {
 }
 
 // 움직이지 않는 가구를 재질별로 합쳐 그리기 호출을 크게 줄인다.
-function mergeStatic(scene) {
-  scene.updateMatrixWorld(true);
+function mergeStatic(root) {
+  root.updateMatrixWorld(true);
   const groups = new Map();
   const walk = (o) => {
     if (o.userData.noMerge) return;
@@ -187,12 +202,12 @@ function mergeStatic(scene) {
     groups.get(key).geos.push(g);
     o.parent.remove(o);
   };
-  walk(scene);
+  root.children.slice().forEach(walk);
   groups.forEach(({ material, cast, receive, geos }) => {
     const mesh = new THREE.Mesh(mergeGeometries(geos, false), material);
     mesh.castShadow = cast;
     mesh.receiveShadow = receive;
-    scene.add(mesh);
+    root.add(mesh);
     geos.forEach((g) => g.dispose());
   });
 }
@@ -335,6 +350,7 @@ export function createCafe(renderer) {
 
   const unit = new THREE.BoxGeometry(1, 1, 1);
   const pickables = [];
+  const hitMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
 
   function box(w, h, d, mat, x, y, z, { cast = true, parent = scene, ry = 0 } = {}) {
     const m = new THREE.Mesh(unit, mat);
@@ -450,10 +466,14 @@ export function createCafe(renderer) {
   scene.add(slats);
 
   // ───── 벽, 창, 천장 ─────
+  // 위에서 내려다볼 때 걷어 내는 것들을 한 묶음에 모은다.
+  const roof = new THREE.Group();
+  roof.userData.noMerge = true;
+  scene.add(roof);
   const addWallBox = (w, h, d, mat, x, y, z) => box(w, h, d, mat, x, y, z);
   addWallBox(0.4, 7, 19, concrete, 13.2, 3.5, 0);
   addWallBox(27, 7, 0.4, plaster, 0, 3.5, 9.2);
-  addWallBox(27, 0.4, 19, ceilingMat, 0, 6.7, 0);
+  box(27, 0.4, 19, ceilingMat, 0, 6.7, 0, { parent: roof });
   addWallBox(27, 0.9, 0.3, concrete, 0, 6.05, -9.15);
   addWallBox(0.3, 0.9, 19, concrete, -13.15, 6.05, 0);
   addWallBox(27, 0.25, 0.3, steel, 0, 0.12, -9.15);
@@ -484,17 +504,17 @@ export function createCafe(renderer) {
 
   // 천장 설비 (사진 1, 3의 노출 덕트와 시스템 에어컨)
   for (const z of [-5.5, 4.5]) {
-    const t = cyl(0.26, 0.26, 25, duct, 0, 6.05, z, { seg: 18, cast: false });
+    const t = cyl(0.26, 0.26, 25, duct, 0, 6.05, z, { seg: 18, cast: false, parent: roof });
     t.rotation.z = Math.PI / 2;
   }
   for (const [x, z] of [[-6, 3], [7, -2], [7, 3.2]]) {
-    box(1.25, 0.12, 1.25, whiteMetal, x, 6.38, z, { cast: false });
-    box(0.72, 0.02, 0.72, steel, x, 6.31, z, { cast: false });
+    box(1.25, 0.12, 1.25, whiteMetal, x, 6.38, z, { cast: false, parent: roof });
+    box(0.72, 0.02, 0.72, steel, x, 6.31, z, { cast: false, parent: roof });
   }
 
   // ───── 조명 ─────
   // 사진 1의 나무 원판 + 에디슨 전구
-  cyl(2.5, 2.5, 0.12, oak, cx, 5.95, 1.5, { seg: 48 });
+  cyl(2.5, 2.5, 0.12, oak, cx, 5.95, 1.5, { seg: 48, parent: roof });
   const wire = std({ color: '#111', roughness: 0.8 });
   for (let i = 0; i < 9; i++) {
     const a = (i / 9) * Math.PI * 2 + 0.3;
@@ -502,12 +522,12 @@ export function createCafe(renderer) {
     const x = cx + Math.cos(a) * r;
     const z = 1.5 + Math.sin(a) * r;
     const y = 3.5 + rnd() * 1.35;
-    cyl(0.008, 0.008, 5.9 - y, wire, x, (5.9 + y) / 2, z, { seg: 5, cast: false });
-    cyl(0.03, 0.03, 0.07, steel, x, y + 0.13, z, { seg: 10, cast: false });
+    cyl(0.008, 0.008, 5.9 - y, wire, x, (5.9 + y) / 2, z, { seg: 5, cast: false, parent: roof });
+    cyl(0.03, 0.03, 0.07, steel, x, y + 0.13, z, { seg: 10, cast: false, parent: roof });
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), bulbMat);
     bulb.position.set(x, y, z);
-    scene.add(bulb);
-    glow(x, y, z, 1.05);
+    roof.add(bulb);
+    glow(x, y, z, 1.05, roof);
   }
 
   // 사진 1의 철사 구형 조명
@@ -517,9 +537,9 @@ export function createCafe(renderer) {
   const orbGeo = new THREE.IcosahedronGeometry(0.95, 2);
   orbGroup.add(new THREE.Mesh(orbGeo, new THREE.MeshBasicMaterial({ color: '#c9a35b', wireframe: true })));
   orbGroup.add(new THREE.Points(orbGeo, new THREE.PointsMaterial({ color: '#ffd58a', size: 0.07, toneMapped: false })));
-  scene.add(orbGroup);
+  roof.add(orbGroup);
   glow(0, 0, 0, 2.3, orbGroup);
-  cyl(0.008, 0.008, 2, wire, -7.5, 5.6, -1.5, { seg: 5, cast: false });
+  cyl(0.008, 0.008, 2, wire, -7.5, 5.6, -1.5, { seg: 5, cast: false, parent: roof });
 
   // 사진 3의 검은 갓 조명
   const domeProfile = [[0.46, 0], [0.42, 0.1], [0.3, 0.27], [0.1, 0.36], [0.04, 0.42]].map((p) => new THREE.Vector2(p[0], p[1]));
@@ -530,13 +550,13 @@ export function createCafe(renderer) {
     const d = new THREE.Mesh(domeGeo, domeMat);
     d.position.set(x, y, z);
     d.castShadow = true;
-    scene.add(d);
+    roof.add(d);
     const disk = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), bulbMat);
     disk.rotation.x = Math.PI / 2;
     disk.position.set(x, y + 0.04, z);
-    scene.add(disk);
-    glow(x, y - 0.05, z, 1.3);
-    cyl(0.008, 0.008, 2.6, wire, x, y + 1.7, z, { seg: 5, cast: false });
+    roof.add(disk);
+    glow(x, y - 0.05, z, 1.3, roof);
+    cyl(0.008, 0.008, 2.6, wire, x, y + 1.7, z, { seg: 5, cast: false, parent: roof });
   }
 
   const hemi = new THREE.HemisphereLight('#fff6e8', '#7a5436', 1);
@@ -663,7 +683,7 @@ export function createCafe(renderer) {
     ctx.font = '700 150px "Gowun Batang", serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('오후서재', w / 2, h / 2 + 6);
+    ctx.fillText('스터디카페', w / 2, h / 2 + 6);
   };
   const signTex = canvasTexture(1024, 256, signDraw);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.85), std({ map: signTex, roughness: 0.6 }));
@@ -816,11 +836,44 @@ export function createCafe(renderer) {
     mug.userData.noMerge = true;
     scene.add(mug);
     seat.mug = mug;
+    noteSpot(seat, seat.x + fx * d - Math.cos(seat.rot) * 0.36, seat.deskY, seat.z + fz * d + Math.sin(seat.rot) * 0.36);
+  }
+
+  // 자리에 붙는 쪽지. 많이 받아도 세 장까지만 겹쳐 놓는다.
+  const noteMat = new THREE.MeshBasicMaterial({ map: noteTexture(), toneMapped: false });
+  const noteGeo = new THREE.PlaneGeometry(0.2, 0.2);
+  noteGeo.rotateX(-Math.PI / 2);
+  function noteSpot(seat, x, y, z) {
+    const group = new THREE.Group();
+    group.position.set(x, y, z);
+    group.rotation.y = seat.rot;
+    group.userData.noMerge = true;
+    const sheets = [[0, 0, 0.1], [0.03, -0.02, -0.16], [-0.025, 0.025, 0.28]].map(([dx, dz, turn], i) => {
+      const sheet = new THREE.Mesh(noteGeo, noteMat);
+      sheet.position.set(dx, 0.004 + i * 0.002, dz);
+      sheet.rotation.y = turn;
+      sheet.visible = false;
+      group.add(sheet);
+      return sheet;
+    });
+    scene.add(group);
+    const hit = new THREE.Mesh(unit, hitMat);
+    hit.scale.set(0.34, 0.14, 0.34);
+    hit.position.set(x, y + 0.05, z);
+    hit.visible = false;
+    hit.userData.noMerge = true;
+    hit.userData.noteSeat = seat.i;
+    scene.add(hit);
+    pickables.push(hit);
+    seat.noteCount = 0;
+    seat.setNotes = (count) => {
+      seat.noteCount = count;
+      sheets.forEach((sheet, i) => { sheet.visible = i < count; });
+    };
   }
 
   // ───── 20석 ─────
   const seats = [];
-  const hitMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   const ringGeo = new THREE.RingGeometry(0.33, 0.4, 36);
   const ringMat = new THREE.MeshBasicMaterial({ color: '#ffd24a', transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
   function addSeat(zone, type, x, z, rot, y, deskY) {
@@ -896,8 +949,8 @@ export function createCafe(renderer) {
   scene.add(rug);
   beanbag(6, 4.9, '#e8701f');
   beanbag(10, 4.9, '#2f5d73');
-  addSeat('빈백 라운지', 'bean', 6, 4.9, Math.PI / 2, 0.44, 0);
-  addSeat('빈백 라운지', 'bean', 10, 4.9, -Math.PI / 2, 0.44, 0);
+  noteSpot(addSeat('빈백 라운지', 'bean', 6, 4.9, Math.PI / 2, 0.44, 0), 7.68, 0.405, 5.42);
+  noteSpot(addSeat('빈백 라운지', 'bean', 10, 4.9, -Math.PI / 2, 0.44, 0), 8.32, 0.405, 5.42);
   beanbag(12.1, 6.7, '#7d7a72', 0.85);
   box(1.1, 0.05, 0.8, oak, 8, 0.38, 5.2);
   box(0.9, 0.36, 0.05, steel, 8, 0.18, 5.2);
@@ -925,6 +978,7 @@ export function createCafe(renderer) {
   });
   bookMesh.receiveShadow = true;
   scene.add(bookMesh);
+  mergeStatic(roof);
   mergeStatic(scene);
 
   const nav = new Nav([
@@ -977,6 +1031,10 @@ export function createCafe(renderer) {
     spawn: { x: 1, z: 6.5 },
     findPath: (from, to) => nav.findPath(from, to),
     setTime,
+    setRoof(on) {
+      roof.visible = on;
+      outside.visible = on;
+    },
     tick(t) {
       orbGroup.rotation.y = t * 0.03;
     },
