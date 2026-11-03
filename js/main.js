@@ -41,7 +41,8 @@ controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = 1.5;
 controls.enabled = false;
 
-const sound = new Sound(store.get('sound', null));
+// 효과음 크기의 뜻이 바뀌어 이전에 저장한 크기는 쓰지 않고 새 기본값에서 시작한다.
+const sound = new Sound(store.get('sound2', null));
 const prefs = {
   npc: store.get('npc', true),
   time: store.get('time', params.get('time') || 'auto'),
@@ -855,12 +856,6 @@ function refreshSeatProps() {
     s.lampSet?.(!!p && p.mode === 'study');
     s.setNotes(!p || p.isNpc ? 0 : p.isMe ? myNotes.length : p.notes || 0);
   });
-  const everyone = [...others.values(), ...npcs];
-  sound.setActivity({
-    meStudying: me.seat >= 0 && me.mode === 'study' && me.fig?.state === 'seated',
-    othersStudying: everyone.filter((p) => p.mode === 'study').length,
-    others: everyone.length,
-  });
 }
 
 function saveStudy() {
@@ -1066,7 +1061,7 @@ document.querySelectorAll('[data-bed]').forEach((b) => {
       sound.setMuted(false);
       syncMute();
     }
-    store.set('sound', sound.prefs());
+    store.set('sound2', sound.prefs());
     syncBed();
     if (b.closest('#soundTip')) {
       store.set('soundTipSeen', true);
@@ -1100,7 +1095,7 @@ $('soundTipClose').addEventListener('click', closeSoundTip);
 
 $('muteBtn').addEventListener('click', () => {
   sound.setMuted(!sound.muted);
-  store.set('sound', sound.prefs());
+  store.set('sound2', sound.prefs());
   syncMute();
 });
 function syncMute() {
@@ -1112,7 +1107,7 @@ document.querySelectorAll('[data-level]').forEach((input) => {
   input.value = sound.levels[name];
   input.addEventListener('input', () => {
     sound.setLevel(name, Number(input.value));
-    store.set('sound', sound.prefs());
+    store.set('sound2', sound.prefs());
     document.querySelectorAll(`[data-level="${name}"]`).forEach((other) => {
       if (other !== input) other.value = input.value;
     });
@@ -1123,10 +1118,10 @@ document.querySelectorAll('[data-try]').forEach((b) => {
     sound.start();
     if (sound.muted) {
       sound.setMuted(false);
-      store.set('sound', sound.prefs());
+      store.set('sound2', sound.prefs());
       syncMute();
     }
-    sound[b.dataset.try](1, 0);
+    sound[b.dataset.try](true);
   });
 });
 $('npcToggle').checked = prefs.npc;

@@ -97,16 +97,19 @@
       <span id="bedTitle" class="bed-title">백색소음 고르기</span>
       <div class="bed-row">
         <button data-bed="air">잔잔한 바람</button>
-        <button data-bed="rain">빗소리</button>
         <button data-bed="cafe">카페 웅성임</button>
         <button data-bed="fire">장작불</button>
         <button data-bed="off">끄기</button>
       </div>
     </div>
     <div class="slider"><label for="lvNoise">백색소음 크기</label><input id="lvNoise" type="range" min="0" max="1" step="0.05" data-level="noise"></div>
-    <div class="slider"><label for="lvPencil">연필 소리</label><input id="lvPencil" type="range" min="0" max="1" step="0.05" data-level="pencil"><button class="ghost try" data-try="pencil">듣기</button></div>
-    <div class="slider"><label for="lvPage">책장 소리</label><input id="lvPage" type="range" min="0" max="1" step="0.05" data-level="page"><button class="ghost try" data-try="page">듣기</button></div>
-    <div class="slider"><label for="lvCough">기침 소리</label><input id="lvCough" type="range" min="0" max="1" step="0.05" data-level="cough"><button class="ghost try" data-try="cough">듣기</button></div>
+    <hr>
+    <div class="bed-group" role="group" aria-labelledby="effectTitle">
+      <span id="effectTitle" class="bed-title">효과음</span>
+      <p class="fine">5~10분마다 불규칙하게 나오고, 백색소음보다 항상 작게 들려요. 백색소음을 끄면 저절로 나오지 않아요.</p>
+      <div class="slider"><label for="lvPencil">연필 소리</label><input id="lvPencil" type="range" min="0" max="1" step="0.05" data-level="pencil"><button class="ghost try" data-try="pencil">듣기</button></div>
+      <div class="slider"><label for="lvPage">책장 소리</label><input id="lvPage" type="range" min="0" max="1" step="0.05" data-level="page"><button class="ghost try" data-try="page">듣기</button></div>
+    </div>
     <hr>
     <div class="slider"><label for="timeSelect">창밖 시간</label>
       <select id="timeSelect"><option value="auto">지금 시각대로</option><option value="day">낮</option><option value="dusk">노을</option><option value="night">밤</option></select>
@@ -122,7 +125,6 @@
     <p>집중이 잘 되는 소리를 눌러 보세요. 위의 ‘소리’ 버튼에서 언제든 바꿀 수 있어요.</p>
     <div class="bed-row" role="group" aria-label="백색소음 고르기">
       <button data-bed="air">잔잔한 바람</button>
-      <button data-bed="rain">빗소리</button>
       <button data-bed="cafe">카페 웅성임</button>
       <button data-bed="fire">장작불</button>
     </div>
@@ -148,7 +150,6 @@
       <span class="field-title" id="fBed">백색소음</span>
       <div class="bed-row" role="group" aria-labelledby="fBed">
         <button type="button" data-bed="air">잔잔한 바람</button>
-        <button type="button" data-bed="rain">빗소리</button>
         <button type="button" data-bed="cafe">카페 웅성임</button>
         <button type="button" data-bed="fire">장작불</button>
         <button type="button" data-bed="off">끄기</button>
