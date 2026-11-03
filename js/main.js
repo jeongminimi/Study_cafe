@@ -1121,6 +1121,11 @@ document.querySelectorAll('[data-level]').forEach((input) => {
 document.querySelectorAll('[data-try]').forEach((b) => {
   b.addEventListener('click', () => {
     sound.start();
+    if (sound.muted) {
+      sound.setMuted(false);
+      store.set('sound', sound.prefs());
+      syncMute();
+    }
     sound[b.dataset.try](1, 0);
   });
 });
@@ -1167,8 +1172,22 @@ $('leaveBtn').addEventListener('click', () => location.reload());
 $('nameEdit').addEventListener('change', (e) => {
   if (!applyName(e.target.value)) e.target.value = me.name;
 });
+// ‘다른 작가’를 누를 때마다 아직 안 나온 이름을 보여 주고, 다 나오면 처음부터 다시 돈다.
+const shownAuthors = new Set();
+function nextAuthor(current) {
+  shownAuthors.add(current);
+  let name = randomAuthor([...shownAuthors]);
+  if (shownAuthors.has(name)) {
+    shownAuthors.clear();
+    shownAuthors.add(current);
+    name = randomAuthor([current]);
+  }
+  shownAuthors.add(name);
+  return name;
+}
+
 $('nameReroll').addEventListener('click', () => {
-  const name = randomAuthor([me.name]);
+  const name = nextAuthor(me.name);
   $('nameEdit').value = name;
   applyName(name);
 });
@@ -1216,7 +1235,7 @@ $('noteOffToggle').addEventListener('change', (e) => {
 $('entryName').value = me.name;
 if (firstName) $('entryHint').textContent = '지난번 닉네임이에요. 바꿔도 돼요.';
 $('entryReroll').addEventListener('click', () => {
-  $('entryName').value = randomAuthor([$('entryName').value]);
+  $('entryName').value = nextAuthor($('entryName').value);
 });
 $('entryRoom').textContent = `${room}관`;
 $('entryForm').addEventListener('submit', async (e) => {

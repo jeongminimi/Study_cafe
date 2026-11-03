@@ -1,4 +1,5 @@
-// 모든 소리는 녹음 파일 없이 Web Audio로 합성한다.
+// 연필 소리만 녹음 파일을 쓰고, 나머지 소리는 Web Audio로 합성한다.
+const PENCIL_URL = new URL('../audio/pencil.wav', import.meta.url);
 const rand = (a, b) => a + Math.random() * (b - a);
 
 export const BEDS = { air: '잔잔한 바람', rain: '빗소리', cafe: '카페 웅성임', fire: '장작불', off: '끄기' };
@@ -30,6 +31,13 @@ export class Sound {
     const limiter = ctx.createDynamicsCompressor();
     this.master.connect(limiter).connect(ctx.destination);
 
+    this.pencilClip = fetch(PENCIL_URL)
+      .then((res) => res.arrayBuffer())
+      .then((data) => ctx.decodeAudioData(data))
+      .catch((err) => {
+        console.warn('연필 소리를 불러오지 못했습니다', err);
+        return null;
+      });
     this.noiseBuf = this.makeNoise(4, false);
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = this.makeImpulse(1.5);
@@ -55,8 +63,9 @@ export class Sound {
     }, rand(25, 50));
   }
 
+  // 5초짜리 녹음이 겹치지 않도록 간격을 둔다.
   pencilDelay() {
-    return this.activity.meStudying ? rand(3.5, 9) : rand(9, 24);
+    return this.activity.meStudying ? rand(6.5, 12) : rand(14, 30);
   }
 
   pageDelay() {
@@ -361,35 +370,18 @@ export class Sound {
     return g;
   }
 
-  // 연필: 짧은 사각거림 여러 번
-  pencil(amount = 1, pan = 0) {
+  // 연필: 녹음한 사각거림. 똑같이 들리지 않도록 빠르기를 조금씩 바꾼다.
+  async pencil(amount = 1, pan = 0) {
     if (!this.ctx) return;
-    const { ctx } = this;
-    const out = this.output(this.levels.pencil * amount * 0.5, pan, 0.08);
-    const strokes = 5 + Math.floor(Math.random() * 9);
-    let t = ctx.currentTime + 0.02;
-    for (let i = 0; i < strokes; i++) {
-      const dur = rand(0.05, 0.17);
-      const src = this.noiseSource(t, dur);
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.Q.value = 0.9;
-      const f = rand(3200, 5400);
-      bp.frequency.setValueAtTime(f, t);
-      bp.frequency.linearRampToValueAtTime(f * rand(0.8, 1.25), t + dur);
-      const hp = ctx.createBiquadFilter();
-      hp.type = 'highpass';
-      hp.frequency.value = 1800;
-      const env = ctx.createGain();
-      const peak = rand(0.14, 0.34);
-      env.gain.setValueAtTime(0.0001, t);
-      env.gain.exponentialRampToValueAtTime(peak, t + 0.012);
-      env.gain.setValueAtTime(peak * 0.8, t + dur * 0.65);
-      env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      src.connect(hp).connect(bp).connect(env).connect(out);
-      t += dur + rand(0.02, 0.1);
-      if (Math.random() < 0.18) t += rand(0.12, 0.35);
-    }
+    const clip = await this.pencilClip;
+    if (!clip) return;
+    this.pencilVoice?.stop();
+    const src = this.ctx.createBufferSource();
+    src.buffer = clip;
+    src.playbackRate.value = rand(0.95, 1.05);
+    src.connect(this.output(this.levels.pencil * amount * 2.5, pan, 0.08));
+    src.start();
+    this.pencilVoice = src;
   }
 
   // 책장: 종이가 넘어가는 바스락 + 내려앉는 소리
