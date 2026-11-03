@@ -32,9 +32,11 @@
       <button type="button" data-char="man"><img alt="" hidden><span>남</span></button>
       <button type="button" data-char="woman"><img alt="" hidden><span>여</span></button>
       <button type="button" data-char="child"><img alt="" hidden><span>아이</span></button>
+      <button type="button" data-char="dog"><img alt="" hidden><span>강아지</span></button>
+      <button type="button" data-char="cat"><img alt="" hidden><span>고양이</span></button>
     </div>
     <div class="look-row">
-      <div class="hair-pick" role="group" aria-label="머리 색 고르기"></div>
+      <div class="hair-pick" role="group" aria-label="머리 색 또는 털 색 고르기"></div>
       <button type="button" class="glasses-btn" data-glasses>안경</button>
     </div>
     <label for="entryName">오늘의 작가 이름</label>
@@ -61,6 +63,7 @@
   <div class="top-right bar">
     <button id="peopleBtn" class="text-btn" aria-expanded="false"><span class="wide-only">함께 </span><span id="peopleCount">1명</span></button>
     <button id="soundBtn" class="text-btn" aria-expanded="false">소리<span id="soundNow" class="sound-now"></span><span id="soundDot" class="sound-dot" hidden></span></button>
+    <button id="guideBtn" class="text-btn" aria-label="사용방법" title="사용방법" aria-expanded="false"><span class="wide-only">사용방법</span><span class="narrow-only">?</span></button>
     <button id="viewBtn" class="text-btn" aria-pressed="false"><span id="viewTop">위에서<span class="wide-only"> 보기</span></span><span id="viewBack" hidden>원래<span class="wide-only"> 시점</span></span></button>
     <button id="inviteBtn" class="text-btn">초대</button>
   </div>
@@ -78,9 +81,11 @@
         <button data-char="man">남</button>
         <button data-char="woman">여</button>
         <button data-char="child">아이</button>
+        <button data-char="dog">강아지</button>
+        <button data-char="cat">고양이</button>
       </div>
       <div class="look-row">
-        <div class="hair-pick" role="group" aria-label="머리 색 고르기"></div>
+        <div class="hair-pick" role="group" aria-label="머리 색 또는 털 색 고르기"></div>
         <button type="button" class="glasses-btn" data-glasses>안경</button>
       </div>
     </div>
@@ -128,6 +133,20 @@
       <button data-bed="cafe">카페 웅성임</button>
       <button data-bed="fire">장작불</button>
     </div>
+  </aside>
+
+  <aside id="guide" class="guide" role="dialog" aria-labelledby="guideTitle" hidden>
+    <div class="panel-head"><h2 id="guideTitle">스터디카페 사용방법</h2><button id="guideClose" class="tip-close" aria-label="사용방법 닫기">×</button></div>
+    <dl>
+      <dt>자리에 앉기</dt><dd>노란 동그라미가 있는 빈자리를 누르세요. 바닥을 누르면 그곳으로 걸어가요.</dd>
+      <dt>공부 시작</dt><dd>앉은 뒤 아래 <b>학습</b> 버튼을 누르고, 백색소음과 타이머를 정하세요.</dd>
+      <dt>상태 바꾸기</dt><dd>아래 버튼으로 학습, 휴식, 핸드폰, 자기 중에서 고르세요. 숫자 키 1~4도 돼요.</dd>
+      <dt>쪽지 보내기</dt><dd>앉아 있는 사람의 자리를 누르면 쪽지를 붙일 수 있어요. 받은 쪽지는 아래 <b>쪽지</b> 버튼에서 확인해요.</dd>
+      <dt>화면 움직이기</dt><dd>드래그하면 화면이 돌아가고, 마우스 휠이나 두 손가락으로 확대해요. <b>위에서 보기</b>를 누르면 카페 전체가 보여요.</dd>
+      <dt>소리와 캐릭터</dt><dd>위쪽 <b>소리</b>에서 백색소음과 효과음을, <b>함께</b>에서 닉네임과 캐릭터를 바꿔요.</dd>
+    </dl>
+    <button id="guideStart" class="block-btn block-btn-yellow">시작하기</button>
+    <div class="guide-bar" aria-hidden="true"></div>
   </aside>
 
   <div id="timer" class="timer" hidden>

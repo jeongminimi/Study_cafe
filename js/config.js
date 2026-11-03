@@ -1,7 +1,10 @@
 export const CAPACITY = 20;
 export const MAX_ROOMS = 9;
 export const APP_ID = 'ohuseojae-study-cafe-v1';
-export const CHARACTERS = { man: '남', woman: '여', child: '아이' };
+export const CHARACTERS = { man: '남', woman: '여', child: '아이', dog: '강아지', cat: '고양이' };
+export const isPet = (type) => type === 'dog' || type === 'cat';
+// 남, 여만 처음부터 안경을 쓴다.
+export const defaultGlasses = (type) => type === 'man' || type === 'woman';
 export const NOTE_MAX = 60;
 export const NOTE_LIMIT = 6;
 export const NOTE_GAP_MS = 30000;
@@ -14,7 +17,26 @@ export const HAIR = {
   blond: { label: '금색', color: '#d9b565', brow: '#9c7a3e' },
   auburn: { label: '적갈색', color: '#8a3f26', brow: '#5f2a18' },
 };
-export const hairColor = (hair, type) => HAIR[hair].color[type] || HAIR[hair].color;
+// 강아지와 고양이는 같은 5칸을 털 색으로 쓴다.
+const PET_FUR = {
+  dog: {
+    base: { label: '황금색', fur: '#e6bd7f', dark: '#c58f55', light: '#f6e4c4' },
+    black: { label: '검정', fur: '#3b3330', dark: '#241e1b', light: '#6d615a' },
+    brown: { label: '진갈색', fur: '#7a5236', dark: '#533522', light: '#b58a66' },
+    blond: { label: '크림색', fur: '#f4ead6', dark: '#e0cda9', light: '#fff9ec' },
+    auburn: { label: '적갈색', fur: '#a85f30', dark: '#7c421e', light: '#dba77a' },
+  },
+  cat: {
+    base: { label: '흰색', fur: '#fbf8f2', dark: '#e9e2d6', light: '#ffffff' },
+    black: { label: '검정', fur: '#3a3633', dark: '#262322', light: '#6e6863' },
+    brown: { label: '회색', fur: '#c9c4bc', dark: '#a8a298', light: '#ece7dd' },
+    blond: { label: '크림색', fur: '#ead9b4', dark: '#d1ba8c', light: '#f8efd9' },
+    auburn: { label: '주황색', fur: '#dd9147', dark: '#b1641f', light: '#f7ddb9' },
+  },
+};
+export const furOf = (hair, type) => PET_FUR[type][hair];
+export const hairColor = (hair, type) => (isPet(type) ? furOf(hair, type).fur : HAIR[hair].color[type] || HAIR[hair].color);
+export const hairLabel = (hair, type) => (isPet(type) ? `털 색 ${furOf(hair, type).label}` : `머리 색 ${HAIR[hair].label}`);
 export const browColor = (hair, type) => HAIR[hair].brow[type] || HAIR[hair].brow;
 
 // 세계적으로 유명한 외국 작가를 먼저 고르고, 다 쓰면 한국 작가를 고른다.

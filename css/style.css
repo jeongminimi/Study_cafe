@@ -85,9 +85,9 @@ label { font-size: 12.5px; font-weight: 500; color: var(--ink-soft); }
 .block-btn-navy { --tone: var(--navy); }
 .block-btn-white { --tone: var(--white); color: #2b190c; }
 
-.char-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.char-pick { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .char-pick button {
-  display: grid; justify-items: center; gap: 0; padding: 4px 4px 7px; border-radius: 14px; font-weight: 700;
+  display: grid; justify-items: center; gap: 0; padding: 4px 2px 7px; border-radius: 14px; font-size: 13px; font-weight: 700;
   color: var(--ink); background: rgba(35, 22, 13, .62); border: 2px solid var(--glass-line); backdrop-filter: blur(6px);
 }
 .char-pick button:hover { background: rgba(35, 22, 13, .8); }
@@ -96,7 +96,7 @@ label { font-size: 12.5px; font-weight: 500; color: var(--ink-soft); }
 kbd { margin-left: 6px; font: 500 10px var(--body); opacity: .72; }
 
 /* 머리 색과 안경 */
-.look-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.look-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .hair-pick { display: flex; gap: 8px; }
 .hair-pick button {
   width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch);
@@ -130,7 +130,7 @@ select option { color: #2b190c; background: #fff9eb; }
 
 .panel {
   position: fixed; top: calc(66px + env(safe-area-inset-top, 0px)); right: max(14px, env(safe-area-inset-right, 0px));
-  width: min(330px, calc(100vw - 28px)); max-height: calc(100vh - 200px); overflow: auto; padding: 14px; display: grid; gap: 10px;
+  width: min(330px, calc(100vw - 28px)); max-height: calc(100vh - 200px); overflow: auto; padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px;
   background: var(--glass); border: 1px solid var(--glass-line); border-radius: 8px; backdrop-filter: blur(10px);
 }
 .panel-head { display: flex; align-items: center; justify-content: space-between; }
@@ -182,6 +182,22 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--glass-line); margin: 2p
 .sound-tip .bed-row button { background: #f0e4cb; border-color: rgba(43, 25, 12, .22); color: #2b190c; }
 .sound-tip .bed-row button:hover { background: #e7d6b4; }
 .sound-tip .bed-row button[aria-pressed='true'] { background: var(--yellow); border-color: #2b190c; }
+
+/* 처음 들어온 사람에게 잠깐 보여 주는 사용방법 */
+.narrow-only { display: none; }
+.guide {
+  position: fixed; z-index: 4; left: 50%; top: calc(66px + env(safe-area-inset-top, 0px)); transform: translateX(-50%);
+  width: min(460px, calc(100vw - 24px)); max-height: calc(100% - 92px); overflow: auto; display: grid; gap: 10px; padding: 14px 16px 16px; border-radius: 12px;
+  color: #2b190c; background: #fff9eb; box-shadow: 0 12px 34px rgba(0, 0, 0, .45);
+}
+.guide h2 { font-size: 19px; }
+.guide dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 7px 12px; font-size: 13.5px; line-height: 1.45; }
+.guide dt { font-weight: 700; }
+.guide dd { margin: 0; }
+.guide .block-btn { min-height: 42px; padding-block: 8px; }
+.guide-bar { display: none; height: 4px; border-radius: 2px; background: var(--yellow); transform-origin: left; }
+.guide.auto .guide-bar { display: block; animation: guide-count 5s linear forwards; }
+@keyframes guide-count { to { transform: scaleX(0); } }
 
 /* 영상의 원형 타이머처럼 남은 시간만큼 원이 줄어든다 */
 .timer {
@@ -277,8 +293,16 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--glass-line); margin: 2p
   padding: 8px 14px; border-radius: 6px; background: #fff9eb; color: #2b190c; font-weight: 500; box-shadow: 0 4px 16px rgba(0, 0, 0, .35); overflow-wrap: anywhere;
 }
 
+@media (max-width: 1000px) {
+  .timer { top: calc(62px + env(safe-area-inset-top, 0px)); }
+}
+
 @media (max-width: 720px) {
   .brand, .sound-now, .wide-only { display: none; }
+  .narrow-only { display: inline; }
+  .guide { top: calc(60px + env(safe-area-inset-top, 0px)); }
+  .guide dl { grid-template-columns: minmax(0, 1fr); gap: 1px 0; font-size: 13px; }
+  .guide dd { margin-bottom: 6px; }
   .top-left { gap: 4px; padding-inline: 5px; }
   .top-right { gap: 2px; padding-inline: 6px; }
   .top-right .text-btn { padding-inline: 5px; }
@@ -300,5 +324,5 @@ hr { width: 100%; border: 0; border-top: 1px solid var(--glass-line); margin: 2p
 
 @media (prefers-reduced-motion: reduce) {
   .block-btn { transition: none; }
-  .sound-dot, .sound-tip, .study-alert { animation: none; }
+  .sound-dot, .sound-tip, .study-alert, .guide.auto .guide-bar { animation: none; }
 }

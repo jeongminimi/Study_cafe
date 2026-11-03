@@ -300,6 +300,207 @@ export function topMap(type) {
   });
 }
 
+// 강아지와 고양이의 얼굴. 고양이는 파란 눈, 강아지는 짙은 눈이다.
+export function petFaceMap(type, { fur, light }, asleep) {
+  return tex(1024, 512, (ctx, w) => {
+    const cx = w / 2;
+    const ey = 262;
+    const dx = 68;
+    const cat = type === 'cat';
+    ctx.fillStyle = fur;
+    ctx.fillRect(0, 0, w, 512);
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    if (cat) ctx.ellipse(cx, 366, 138, 96, 0, 0, 7);
+    else ctx.ellipse(cx, 372, 112, 70, 0, 0, 7);
+    ctx.fill();
+    if (cat) {
+      ctx.fillStyle = 'rgba(214,196,176,.22)';
+      ctx.beginPath();
+      ctx.ellipse(cx, 200, 24, 90, 0, 0, 7);
+      ctx.fill();
+    }
+    ctx.fillStyle = cat ? 'rgba(240,160,160,.2)' : 'rgba(235,120,105,.22)';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(cx + s * (dx + 46), ey + 68, 34, 20, 0, 0, 7);
+      ctx.fill();
+    }
+    ctx.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      const x = cx + s * dx;
+      if (asleep) {
+        ctx.strokeStyle = cat ? '#6d6660' : '#2a1a12';
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.arc(x, ey - 4, 17, 0.25, Math.PI - 0.25);
+        ctx.stroke();
+      } else if (cat) {
+        ctx.fillStyle = '#6f9fd8';
+        ctx.beginPath();
+        ctx.ellipse(x, ey, 22, 26, 0, 0, 7);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(60,84,120,.65)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.fillStyle = '#17202c';
+        ctx.beginPath();
+        ctx.ellipse(x, ey + 1, 12, 18, 0, 0, 7);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(x + 7, ey - 10, 6, 0, 7);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = '#2b190f';
+        ctx.beginPath();
+        ctx.ellipse(x, ey, 18, 21, 0, 0, 7);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(x + 5, ey - 8, 6, 0, 7);
+        ctx.fill();
+      }
+    }
+  });
+}
+
+// 강아지: 퀼팅 재킷 안에 크림색 니트
+export function jacketMap() {
+  return tex(1024, 512, (ctx, w, h) => {
+    const cx = w / 2;
+    ctx.fillStyle = '#4f5b36';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(28,36,16,.55)';
+    ctx.lineWidth = 3;
+    for (let k = -h; k < w + h; k += 46) {
+      ctx.beginPath();
+      ctx.moveTo(k, 0);
+      ctx.lineTo(k + h, h);
+      ctx.moveTo(k + h, 0);
+      ctx.lineTo(k, h);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(160,172,120,.2)';
+    ctx.lineWidth = 2;
+    for (let k = -h + 3; k < w + h; k += 46) {
+      ctx.beginPath();
+      ctx.moveTo(k, 0);
+      ctx.lineTo(k + h, h);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#ece1ca';
+    ctx.beginPath();
+    ctx.moveTo(cx - 74, 0);
+    ctx.lineTo(cx + 74, 0);
+    ctx.lineTo(cx + 26, h);
+    ctx.lineTo(cx - 26, h);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(150,126,86,.5)';
+    ctx.lineWidth = 3;
+    for (let y = 18; y < h; y += 20) {
+      ctx.beginPath();
+      ctx.moveTo(cx - 74, y);
+      ctx.lineTo(cx + 74, y);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#6b4a2b';
+    ctx.lineWidth = 9;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + s * 74, 0);
+      ctx.lineTo(cx + s * 26, h);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#434e2d';
+    ctx.strokeStyle = '#6b4a2b';
+    ctx.lineWidth = 4;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.roundRect(cx + s * 130 - 44, 318, 88, 96, 8);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#6b4a2b';
+    ctx.fillRect(0, h - 22, cx - 26, 22);
+    ctx.fillRect(cx + 26, h - 22, cx - 26, 22);
+  });
+}
+
+// 고양이: 복숭아빛 블라우스 위에 갈색 코듀로이 원피스 상체
+export function blouseDressMap() {
+  return tex(1024, 512, (ctx, w, h) => {
+    const cx = w / 2;
+    ctx.fillStyle = '#f0c8ae';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(190,130,104,.35)';
+    ctx.lineWidth = 4;
+    for (let k = 0; k < 40; k++) {
+      const x = (k * 137) % w;
+      const y = (k * 71) % (h * 0.55);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + 18, y + 26, x + 6, y + 54);
+      ctx.stroke();
+    }
+    const waist = h * 0.5;
+    ctx.fillStyle = '#8a6a44';
+    ctx.fillRect(0, waist, w, h - waist);
+    for (const x of [cx, 0, w]) {
+      ctx.fillRect(x - 172, h * 0.25, 344, waist - h * 0.25 + 2);
+      for (const s of [-1, 1]) ctx.fillRect(x + s * 138 - 17, 0, 34, h * 0.26);
+    }
+    ctx.strokeStyle = 'rgba(50,34,16,.32)';
+    ctx.lineWidth = 3;
+    for (let x = 0; x < w; x += 9) {
+      const inBib = [cx, 0, w].some((c) => Math.abs(x - c) < 172);
+      ctx.beginPath();
+      ctx.moveTo(x, inBib ? h * 0.25 : waist);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+  });
+}
+
+export function dressSkirtMap() {
+  return tex(1024, 256, (ctx, w, h) => {
+    const cx = w / 2;
+    ctx.fillStyle = '#8a6a44';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(50,34,16,.34)';
+    ctx.lineWidth = 3;
+    for (let x = 0; x < w; x += 7) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(52,34,14,.8)';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([9, 6]);
+    ctx.beginPath();
+    ctx.roundRect(cx - 58, 62, 116, 96, 10);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(52,34,14,.5)';
+    ctx.fillRect(0, 0, w, 6);
+  });
+}
+
+export function tweedMap() {
+  return tex(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#6d675a';
+    ctx.fillRect(0, 0, w, h);
+    for (let n = 0; n < 2600; n++) {
+      const t = (n * 12.9898) % 1;
+      const x = (n * 37.7) % w;
+      const y = (n * 91.3) % h;
+      ctx.fillStyle = n % 3 === 0 ? 'rgba(30,26,20,.5)' : n % 3 === 1 ? 'rgba(190,178,150,.42)' : 'rgba(120,76,44,.34)';
+      ctx.fillRect(x, y, 3 + t * 5, 2);
+    }
+  });
+}
+
 export function plaidMap(a, b, line, repeat) {
   return tex(256, 256, (ctx, w, h) => {
     ctx.fillStyle = a;

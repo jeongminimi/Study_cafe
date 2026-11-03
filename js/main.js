@@ -4,7 +4,7 @@ import { createCafe } from './scene.js';
 import { Character, closeThumbnails, defaultStyle, renderThumbnail } from './character.js';
 import { Sound, BEDS } from './sound.js';
 import { connectRoom } from './net.js';
-import { CAPACITY, CHARACTERS, HAIR, MAX_ROOMS, MODES, NOTE_GAP_MS, NOTE_LIMIT, NOTE_MAX, cleanName, cleanNote, hairColor, randomAuthor, store } from './config.js';
+import { CAPACITY, CHARACTERS, HAIR, MAX_ROOMS, MODES, NOTE_GAP_MS, NOTE_LIMIT, NOTE_MAX, cleanName, cleanNote, hairColor, hairLabel, randomAuthor, store } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -836,6 +836,8 @@ function syncCharacter() {
   document.querySelectorAll('[data-hair]').forEach((b) => {
     b.style.setProperty('--swatch', hairColor(b.dataset.hair, me.char));
     b.setAttribute('aria-pressed', b.dataset.hair === look.hair ? 'true' : 'false');
+    b.setAttribute('aria-label', hairLabel(b.dataset.hair, me.char));
+    b.title = hairLabel(b.dataset.hair, me.char);
   });
   document.querySelectorAll('[data-glasses]').forEach((b) => {
     b.setAttribute('aria-pressed', look.glasses ? 'true' : 'false');
@@ -1037,6 +1039,7 @@ $('findSeat').addEventListener('click', () => {
 addEventListener('keydown', (e) => {
   if (!entered) return;
   if (e.key === 'Escape') {
+    closeGuide();
     closeStudyDialog();
     closeNoteWrite();
     closeNoteBoard();
@@ -1048,7 +1051,42 @@ addEventListener('keydown', (e) => {
   else if (mode) setMyMode(mode);
 });
 
+// ───── 사용방법 ─────
+const GUIDE_MS = 5000;
+let guideTimer;
+let afterGuide = null;
+
+function openGuide(auto) {
+  clearTimeout(guideTimer);
+  if (!$('soundTip').hidden) closeSoundTip();
+  togglePanel(null);
+  const el = $('guide');
+  el.classList.toggle('auto', auto);
+  el.hidden = false;
+  $('guideStart').textContent = auto ? '시작하기' : '닫기';
+  $('guideBtn').setAttribute('aria-expanded', 'true');
+  if (auto) guideTimer = setTimeout(closeGuide, GUIDE_MS);
+}
+
+function closeGuide() {
+  clearTimeout(guideTimer);
+  $('guide').hidden = true;
+  $('guideBtn').setAttribute('aria-expanded', 'false');
+  if (afterGuide) {
+    const run = afterGuide;
+    afterGuide = null;
+    run();
+  }
+}
+$('guideBtn').addEventListener('click', () => {
+  if ($('guide').hidden) openGuide(false);
+  else closeGuide();
+});
+$('guideClose').addEventListener('click', closeGuide);
+$('guideStart').addEventListener('click', closeGuide);
+
 function togglePanel(id) {
+  if (id) closeGuide();
   if (id === 'soundPanel') closeSoundTip();
   ['soundPanel', 'peoplePanel'].forEach((p) => {
     const el = $(p);
@@ -1140,12 +1178,7 @@ document.querySelectorAll('[data-level]').forEach((input) => {
 document.querySelectorAll('[data-try]').forEach((b) => {
   b.addEventListener('click', () => {
     sound.start();
-    if (sound.muted) {
-      sound.setMuted(false);
-      store.set('sound2', sound.prefs());
-      syncMute();
-    }
-    sound[b.dataset.try]();
+    sound.preview(b.dataset.try);
   });
 });
 $('npcToggle').checked = prefs.npc;
@@ -1215,12 +1248,10 @@ document.querySelectorAll('[data-char]').forEach((b) => {
   b.addEventListener('click', () => setCharacter(b.dataset.char));
 });
 document.querySelectorAll('.hair-pick').forEach((row) => {
-  Object.entries(HAIR).forEach(([key, { label }]) => {
+  Object.keys(HAIR).forEach((key) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.dataset.hair = key;
-    b.title = label;
-    b.setAttribute('aria-label', `머리 색 ${label}`);
     b.addEventListener('click', () => setLook({ hair: key }));
     row.append(b);
   });
@@ -1274,8 +1305,15 @@ $('entryForm').addEventListener('submit', async (e) => {
   flyIn = 1;
   refreshDock();
   refreshPeople();
-  toast('노란 동그라미가 있는 빈자리를 누르면 앉아요.');
-  setTimeout(showSoundTip, 1800);
+  // 처음 들어온 사람에게만 사용방법을 잠깐 보여 주고, 닫힌 뒤에 소리 안내를 띄운다.
+  if (store.get('guideSeen', false)) {
+    toast('노란 동그라미가 있는 빈자리를 누르면 앉아요.');
+    setTimeout(showSoundTip, 1800);
+  } else {
+    store.set('guideSeen', true);
+    afterGuide = () => setTimeout(showSoundTip, 400);
+    openGuide(true);
+  }
   connect();
 });
 

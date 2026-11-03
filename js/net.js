@@ -1,4 +1,4 @@
-import { APP_ID, CHARACTERS, HAIR, NOTE_LIMIT, cleanName, cleanNote, MODES } from './config.js';
+import { APP_ID, CHARACTERS, HAIR, NOTE_LIMIT, cleanName, cleanNote, defaultGlasses, MODES } from './config.js';
 
 const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.26.0/+esm';
 
@@ -13,7 +13,7 @@ function sanitize(d, seatCount) {
     name: cleanName(d.n) || '이름 없는 작가',
     char,
     hair: Object.hasOwn(HAIR, d.h) ? d.h : 'base',
-    glasses: typeof d.g === 'boolean' ? d.g : char !== 'child',
+    glasses: typeof d.g === 'boolean' ? d.g : defaultGlasses(char),
     notes: Math.floor(num(d.k, 0, NOTE_LIMIT)),
     noteOff: d.o === true,
     seat,

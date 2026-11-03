@@ -101,6 +101,9 @@ export class Sound {
     this.clean.connect(this.safety).connect(this.out);
 
     this.master = ctx.createGain();
+    // ‘듣기’는 음소거와 상관없이 그 소리만 들려준다.
+    this.previewBus = ctx.createGain();
+    this.previewBus.connect(ctx.destination);
     const limiter = ctx.createDynamicsCompressor();
     this.master.connect(limiter).connect(this.clean);
 
@@ -125,7 +128,7 @@ export class Sound {
 
     // 효과음은 5~10분 간격으로 불규칙하게 하나씩 나온다.
     this.loop('effect', () => rand(300, 600), () => {
-      if (this.effectsOn) this[Math.random() < 0.5 ? 'pencil' : 'page']();
+      if (this.effectsOn && !this.soloing) this[Math.random() < 0.5 ? 'pencil' : 'page']();
     });
   }
 
@@ -171,10 +174,10 @@ export class Sound {
     return (this.levels[name] * EFFECT_CEILING * bed) / loudest;
   }
 
-  effectOutput(name) {
+  effectOutput(name, target) {
     const gain = this.ctx.createGain();
     gain.gain.value = this.effectLevel(name);
-    gain.connect(this.clean);
+    gain.connect(target);
     this.effectVoice = { name, gain };
     return gain;
   }
@@ -183,6 +186,23 @@ export class Sound {
   refreshEffect() {
     const voice = this.effectVoice;
     if (voice) voice.gain.gain.setTargetAtTime(this.effectLevel(voice.name), this.ctx.currentTime, 0.02);
+  }
+
+  // ‘듣기’: 백색소음을 잠깐 줄여 고른 효과음만 들리게 하고, 끝나면 되돌린다.
+  async preview(name) {
+    this.soloing = true;
+    this.applyNoiseLevel(0.05);
+    if (this.effectVoice) {
+      this.effectVoice.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.01);
+      this.effectVoice = null;
+    }
+    await this[name](this.previewBus);
+    const seconds = name === 'pencil' ? (await this.pencilClip)?.duration || 0 : 0.8;
+    clearTimeout(this.timers.solo);
+    this.timers.solo = setTimeout(() => {
+      this.soloing = false;
+      this.applyNoiseLevel(0.25);
+    }, seconds * 1000 + 150);
   }
 
   setEffects(on) {
@@ -200,7 +220,7 @@ export class Sound {
 
   applyNoiseLevel(smooth) {
     if (!this.noiseGain) return;
-    const duck = this.ducked ? 0.5 : 1;
+    const duck = this.soloing ? 0 : this.ducked ? 0.5 : 1;
     this.noiseGain.gain.setTargetAtTime(this.levels.noise * 0.6 * duck, this.ctx.currentTime, smooth);
     this.fileNoiseGain.gain.setTargetAtTime(this.levels.noise * 4 * duck, this.ctx.currentTime, smooth);
     this.refreshEffect();
@@ -374,7 +394,7 @@ export class Sound {
   }
 
   // 연필: 녹음 파일을 빠르기나 음색을 바꾸지 않고 그대로 튼다.
-  async pencil() {
+  async pencil(target = this.clean) {
     if (!this.ctx) return;
     const clip = await this.pencilClip;
     if (!clip) return;
@@ -385,16 +405,16 @@ export class Sound {
     }
     const src = ctx.createBufferSource();
     src.buffer = clip;
-    src.connect(this.effectOutput('pencil'));
+    src.connect(this.effectOutput('pencil', target));
     src.start();
     this.pencilSrc = src;
   }
 
   // 책장: 종이가 넘어가는 바스락 + 내려앉는 소리
-  page() {
+  page(target = this.clean) {
     if (!this.ctx) return;
     const { ctx } = this;
-    const out = this.effectOutput('page');
+    const out = this.effectOutput('page', target);
     const t = ctx.currentTime + 0.02;
     const dur = rand(0.32, 0.5);
     const src = this.noiseSource(t, dur);

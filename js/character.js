@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { SKIN, faceMap, topMap, plaidMap } from './character-art.js';
-import { HAIR, hairColor, browColor } from './config.js';
+import { SKIN, faceMap, petFaceMap, topMap, plaidMap } from './character-art.js';
+import { addPetParts } from './character-pets.js';
+import { browColor, defaultGlasses, furOf, hairColor, isPet } from './config.js';
 
 const damp = (a, b, k, dt) => a + (b - a) * (1 - Math.exp(-k * dt));
 
@@ -10,10 +11,12 @@ const LOOK = {
   man: { scale: 1.06, headScale: 1, tagY: 1.5, pants: '#34372f', shoes: '#4e2e1a', sleeve: '#4c5145', cuff: '#4c5145' },
   woman: { scale: 0.98, headScale: 1, tagY: 1.4, pants: '#f6cfb2', shoes: '#5e3620', sleeve: '#8f6242', cuff: '#7a5236' },
   child: { scale: 0.8, headScale: 1.14, tagY: 1.3, pants: '#2b2d33', shoes: '#1c1c20', sleeve: '#b6222c', cuff: '#8f1520' },
+  dog: { scale: 0.94, headScale: 1.12, tagY: 1.42 },
+  cat: { scale: 0.9, headScale: 1.12, headY: 0.456, tagY: 1.36 },
 };
 
-// 머리 색과 안경은 사람마다 고른다. 아이는 원래 안경을 쓰지 않는다.
-export const defaultStyle = (type) => ({ hair: 'base', glasses: type !== 'child' });
+// 머리 색(동물은 털 색)과 안경은 사람마다 고른다.
+export const defaultStyle = (type) => ({ hair: 'base', glasses: defaultGlasses(type) });
 const styleOf = (type, style) => ({ ...defaultStyle(type), ...style });
 
 // 같은 옷과 얼굴은 여러 사람이 함께 쓴다.
@@ -24,6 +27,7 @@ const once = (key, make) => {
 };
 
 const flat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.52 });
+const furry = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78 });
 const textured = (map, extra = {}) => new THREE.MeshStandardMaterial({ color: '#ffffff', map, roughness: 0.56, ...extra });
 
 function lathe(points, seg = 32) {
@@ -70,6 +74,22 @@ function buildParts(type, style) {
     if (!texGeos.has(key)) texGeos.set(key, { bone, material, geos: [] });
     texGeos.get(key).geos.push(prep(geo, t));
   };
+  const finish = (faceOn, faceOff) => {
+    const paint = isPet(type) ? furry : flat;
+    const merged = [];
+    Object.entries(flatGeos).forEach(([bone, geos]) => merged.push({ bone, material: paint, geometry: mergeGeometries(geos, false) }));
+    texGeos.forEach(({ bone, material, geos }) => merged.push({ bone, material, geometry: mergeGeometries(geos, false) }));
+    return { merged, faceGeo: new THREE.SphereGeometry(0.2, 36, 24, -Math.PI / 2), faceOn, faceOff, faceY: 0.2 };
+  };
+
+  if (isPet(type)) {
+    addPetParts(type, style, { put, putTex, textured, once, lathe, matrixOf });
+    const fur = furOf(style.hair, type);
+    return finish(
+      once(`on|${type}|${fur.fur}`, () => textured(petFaceMap(type, fur, false), { roughness: 0.78 })),
+      once(`off|${type}|${fur.fur}`, () => textured(petFaceMap(type, fur, true), { roughness: 0.78 })),
+    );
+  }
 
   // 다리
   for (const bone of ['legL', 'legR']) {
@@ -184,17 +204,11 @@ function buildParts(type, style) {
     for (const s of [-1, 1]) put('torso', new RoundedBoxGeometry(0.026, 0.09, 0.008, 2, 0.004), '#7a4b28', { m: bag, p: [s * 0.07, 0.03, 0.052] });
   }
 
-  const merged = [];
-  Object.entries(flatGeos).forEach(([bone, geos]) => merged.push({ bone, material: flat, geometry: mergeGeometries(geos, false) }));
-  texGeos.forEach(({ bone, material, geos }) => merged.push({ bone, material, geometry: mergeGeometries(geos, false) }));
   const brow = browColor(style.hair, type);
-  return {
-    merged,
-    faceGeo: new THREE.SphereGeometry(R, 36, 24, -Math.PI / 2),
-    faceOn: once(`on|${type}|${brow}`, () => textured(faceMap(type, false, brow), { roughness: 0.62 })),
-    faceOff: once(`off|${type}|${brow}`, () => textured(faceMap(type, true, brow), { roughness: 0.62 })),
-    faceY: cy,
-  };
+  return finish(
+    once(`on|${type}|${brow}`, () => textured(faceMap(type, false, brow), { roughness: 0.62 })),
+    once(`off|${type}|${brow}`, () => textured(faceMap(type, true, brow), { roughness: 0.62 })),
+  );
 }
 
 const partsByKey = {};
@@ -279,14 +293,16 @@ export class Character {
     this.legL = group(this.hips, 0.104, -0.015, 0);
     this.legR = group(this.hips, -0.104, -0.015, 0);
     this.skirt = group(this.hips);
+    this.tail = group(this.hips);
     this.torso = group(this.hips, 0, 0.03, 0);
-    this.armL = group(this.torso, 0.178, 0.325, 0);
-    this.armR = group(this.torso, -0.178, 0.325, 0);
-    this.head = group(this.torso, 0, 0.45, 0);
+    const shoulder = type === 'dog' ? 0.2 : 0.178;
+    this.armL = group(this.torso, shoulder, 0.325, 0);
+    this.armR = group(this.torso, -shoulder, 0.325, 0);
+    this.head = group(this.torso, 0, look.headY ?? 0.45, 0);
     this.head.scale.setScalar(look.headScale);
-    const bones = { hips: this.hips, legL: this.legL, legR: this.legR, skirt: this.skirt, torso: this.torso, armL: this.armL, armR: this.armR, head: this.head };
+    const bones = { hips: this.hips, legL: this.legL, legR: this.legR, skirt: this.skirt, tail: this.tail, torso: this.torso, armL: this.armL, armR: this.armR, head: this.head };
     parts.merged.forEach(({ bone, material, geometry }) => bones[bone].add(new THREE.Mesh(geometry, material)));
-    this.hasSkirt = type === 'woman';
+    this.hasSkirt = type === 'woman' || type === 'cat';
 
     this.faceOn = parts.faceOn;
     this.faceOff = parts.faceOff;
@@ -418,6 +434,9 @@ export class Character {
       this.skirt.scale.set(seated ? 0.86 : 1, seated ? 0.9 : 1, seated ? 0.8 : 1);
       this.skirt.position.set(0, seated ? 0.05 : 0, seated ? 0.03 : 0);
     }
+    // 등받이가 있는 의자와 빈백에서는 꼬리가 가구를 뚫으므로 감추고, 스툴에서는 뒤로 내린다.
+    this.tail.visible = !seated || this.seat?.type === 'stool';
+    this.tail.rotation.x = seated && this.type === 'dog' ? -1.35 : 0;
   }
 
   dispose(scene) {
