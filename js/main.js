@@ -4,12 +4,14 @@ import { createCafe } from './scene.js';
 import { Character, closeThumbnails, defaultStyle, renderThumbnail } from './character.js';
 import { Sound, BEDS } from './sound.js';
 import { connectRoom } from './net.js';
+import { setupGames } from './games.js';
 import { CAPACITY, CHARACTERS, HAIR, MAX_ROOMS, MODES, NOTE_GAP_MS, NOTE_LIMIT, NOTE_MAX, cleanName, cleanNote, hairColor, hairLabel, randomAuthor, store } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const room = Math.max(1, Math.min(MAX_ROOMS, parseInt(params.get('room'), 10) || 1));
 const NPC_SEATS = [1, 5, 9, 12, 15, 19];
+const games = setupGames();
 
 const canvas = $('scene');
 let renderer;
@@ -535,6 +537,7 @@ function finishStudy() {
     body: `${plan.study}분 학습을 마쳤어요. ${plan.rest}분 쉬고 ${set + 1}세트를 시작해요. 일어나서 물 한 잔 어때요?`,
     actions: [
       ['쉬기', closeAlert],
+      ['게임 하기', () => { closeAlert(); openGame(); }],
       ['5분 더 학습', () => {
         closeAlert();
         session.remainMs = 5 * 60000;
@@ -596,6 +599,7 @@ function tickSession(delta) {
 let alertLive = null;
 function showAlert({ tone, title, body, live, actions }) {
   const el = $('studyAlert');
+  games.pause();
   el.style.setProperty('--alert-tone', tone);
   $('alertTitle').textContent = title;
   alertLive = live || null;
@@ -719,6 +723,10 @@ function refreshDock() {
   $('seatLabel').textContent = seated ? `${seats[me.seat].zone} ${me.seat + 1}번` : '';
   $('noteBtn').hidden = !seated || !myNotes.length;
   $('noteBtnCount').textContent = myNotes.length;
+  // 게임은 휴식 상태에서만 한다. 학습이 다시 시작되면 저절로 닫힌다.
+  const canPlay = seated && me.mode === 'rest';
+  $('gameBtn').hidden = !canPlay;
+  if (!canPlay) games.close();
   document.querySelectorAll('[data-mode]').forEach((b) => {
     b.setAttribute('aria-pressed', b.dataset.mode === me.mode ? 'true' : 'false');
   });
@@ -735,6 +743,7 @@ function setTitle(normal) {
 
 function updateClock() {
   if (session.state === 'idle') {
+    $('gameTime').textContent = '';
     setTitle('스터디카페');
     return;
   }
@@ -746,6 +755,7 @@ function updateClock() {
   const text = free ? fmt(session.elapsedMs) : fmt(Math.max(0, session.remainMs) + 999);
   $('timerLabel').textContent = sets && !paused ? `${name} · ${sets}` : name;
   $('timerValue').textContent = text;
+  $('gameTime').textContent = session.state === 'study' ? '' : `${name} ${text}`;
   const pie = $('timerPie');
   pie.style.setProperty('--p', free ? 1 : Math.max(0, session.remainMs / session.totalMs).toFixed(4));
   pie.dataset.kind = paused ? 'paused' : session.state === 'study' ? 'study' : 'break';
@@ -1025,6 +1035,16 @@ $('timerEnd').addEventListener('click', () => {
 $('standUp').addEventListener('click', () => {
   leaveSeat();
 });
+function openGame() {
+  closeSoundTip();
+  togglePanel(null);
+  closeGuide();
+  closeStudyDialog();
+  closeNoteWrite();
+  closeNoteBoard();
+  games.open();
+}
+$('gameBtn').addEventListener('click', openGame);
 $('findSeat').addEventListener('click', () => {
   let free = freeSeatIndexes();
   if (!free.length) free = npcs.map((n) => n.seat);
@@ -1043,9 +1063,10 @@ addEventListener('keydown', (e) => {
     closeStudyDialog();
     closeNoteWrite();
     closeNoteBoard();
+    games.close();
     return;
   }
-  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || !$('studyDialog').hidden) return;
+  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || !$('studyDialog').hidden || games.isOpen()) return;
   const mode = Object.keys(MODES).find((m) => MODES[m].key === e.key);
   if (mode === 'study') onStudyButton();
   else if (mode) setMyMode(mode);
@@ -1525,5 +1546,5 @@ $('entry').hidden = false;
 animate();
 
 if (params.has('debug')) {
-  window.__cafe = { me, others, npcs, seats, sound, sitDown, setMyMode, leaveSeat, walkMe, onPeerState, onNote, myNotes, setTopView, camera, controls, renderer, session, prefs, get net() { return net; } };
+  window.__cafe = { me, others, npcs, seats, sound, games, sitDown, setMyMode, leaveSeat, walkMe, onPeerState, onNote, myNotes, setTopView, camera, controls, renderer, session, prefs, get net() { return net; } };
 }
