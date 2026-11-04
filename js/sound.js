@@ -26,8 +26,11 @@ export const BEDS = { air: '잔잔한 바람', cafe: '카페 웅성임', fire: '
 const EFFECT_CEILING = 0.7;
 // 책장 소리는 매번 합성하므로, 40번 재서 가장 컸던 0.14에 여유를 둔 값을 쓴다. 크기는 0.1초 단위로 잰다.
 const PAGE_LOUDEST = 0.2;
+// 휴대폰 스피커는 이어폰보다 훨씬 작게 들려, 터치 기기에서는 녹음 소리를 잔잔한 바람과 비슷한 크기로 올린다.
+const SPEAKER_BOOST = matchMedia('(pointer: coarse)').matches ? 4 : 1;
+const FILE_BED_GAIN = 4 * SPEAKER_BOOST;
 // 백색소음이 들리지 않을 때 효과음 크기의 기준으로 삼는 작은 크기.
-const QUIET_BED = 0.012;
+const QUIET_BED = 0.012 * SPEAKER_BOOST;
 
 // 평소 크기: 가끔 터지는 큰 소리에 끌려가지 않도록 0.1초 단위 크기의 중앙값을 쓴다.
 const typicalOf = (buffer) => {
@@ -81,6 +84,8 @@ export class Sound {
     }
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
+    // 아이폰은 웹 소리를 벨소리 스위치에 묶어, 무음 모드면 이어폰으로만 들린다. 미디어 소리로 지정해 풀어 준다.
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
     // 녹음 파일과 같은 빠르기로 돌려 파일을 변환할 때 생기는 차이를 없앤다.
     let ctx;
     try {
@@ -89,6 +94,12 @@ export class Sound {
       ctx = new Ctx();
     }
     this.ctx = ctx;
+    // 전화, 이어폰 분리, 앱 전환으로 멈춘 소리를 다음 터치 때 되살린다.
+    const wake = () => {
+      if (ctx.state !== 'running') ctx.resume();
+    };
+    document.addEventListener('touchend', wake);
+    document.addEventListener('click', wake);
     this.out = ctx.createGain();
     this.out.gain.value = this.muted ? 0 : 1;
     this.out.connect(ctx.destination);
@@ -122,7 +133,7 @@ export class Sound {
     this.noiseGain.gain.value = this.levels.noise * 0.6;
     this.noiseGain.connect(this.master);
     this.fileNoiseGain = ctx.createGain();
-    this.fileNoiseGain.gain.value = this.levels.noise * 4;
+    this.fileNoiseGain.gain.value = this.levels.noise * FILE_BED_GAIN;
     this.fileNoiseGain.connect(this.clean);
     this.setBed(this.bed);
 
@@ -164,7 +175,7 @@ export class Sound {
   bedLoudness() {
     if (!this.bedVoice) return 0;
     const level = this.levels.noise * (this.ducked ? 0.5 : 1);
-    return FILE_BEDS[this.bed] ? this.bedTypical[this.bed] * 4 * level : 0.15 * 0.6 * level;
+    return FILE_BEDS[this.bed] ? this.bedTypical[this.bed] * FILE_BED_GAIN * level : 0.15 * 0.6 * level;
   }
 
   // 슬라이더는 ‘백색소음보다 작은 범위’ 안에서의 비율이다. 그래서 어떻게 움직여도 백색소음을 넘지 않는다.
@@ -222,7 +233,7 @@ export class Sound {
     if (!this.noiseGain) return;
     const duck = this.soloing ? 0 : this.ducked ? 0.5 : 1;
     this.noiseGain.gain.setTargetAtTime(this.levels.noise * 0.6 * duck, this.ctx.currentTime, smooth);
-    this.fileNoiseGain.gain.setTargetAtTime(this.levels.noise * 4 * duck, this.ctx.currentTime, smooth);
+    this.fileNoiseGain.gain.setTargetAtTime(this.levels.noise * FILE_BED_GAIN * duck, this.ctx.currentTime, smooth);
     this.refreshEffect();
   }
 
