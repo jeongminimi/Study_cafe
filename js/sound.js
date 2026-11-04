@@ -96,13 +96,20 @@ export class Sound {
     this.ctx = ctx;
     // 전화, 이어폰 분리, 앱 전환으로 멈춘 소리를 다음 터치 때 되살린다.
     const wake = () => {
+      if (document.hidden) return;
       if (ctx.state !== 'running') ctx.resume();
+      if (this.player?.paused) this.player.play().catch(() => {});
     };
     document.addEventListener('touchend', wake);
     document.addEventListener('click', wake);
+    // 화면을 나갔다 돌아오면 터치하지 않아도 소리를 되살린다.
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('pageshow', wake);
+    this.bus = ctx.createGain();
+    this.routeBus();
     this.out = ctx.createGain();
     this.out.gain.value = this.muted ? 0 : 1;
-    this.out.connect(ctx.destination);
+    this.out.connect(this.bus);
 
     // 녹음 파일은 압축기와 잔향을 거치지 않고 clean으로 바로 나간다.
     this.clean = ctx.createGain();
@@ -114,7 +121,7 @@ export class Sound {
     this.master = ctx.createGain();
     // ‘듣기’는 음소거와 상관없이 그 소리만 들려준다.
     this.previewBus = ctx.createGain();
-    this.previewBus.connect(ctx.destination);
+    this.previewBus.connect(this.bus);
     const limiter = ctx.createDynamicsCompressor();
     this.master.connect(limiter).connect(this.clean);
 
@@ -140,6 +147,27 @@ export class Sound {
     // 효과음은 5~10분 간격으로 불규칙하게 하나씩 나온다.
     this.loop('effect', () => rand(300, 600), () => {
       if (this.effectsOn && !this.soloing) this[Math.random() < 0.5 ? 'pencil' : 'page']();
+    });
+  }
+
+  // 휴대폰은 화면을 나가면 웹 소리를 바로 멈춘다. <audio>로 내보내 미디어 재생으로 다뤄지게 한다.
+  routeBus() {
+    const { ctx, bus } = this;
+    if (SPEAKER_BOOST === 1 || !ctx.createMediaStreamDestination) {
+      bus.connect(ctx.destination);
+      return;
+    }
+    const sink = ctx.createMediaStreamDestination();
+    bus.connect(sink);
+    const player = new Audio();
+    player.srcObject = sink.stream;
+    this.player = player;
+    if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: '스터디카페' });
+    // 재생을 막는 브라우저에서는 원래 방식으로 내보내 소리가 끊기지 않게 한다.
+    player.play().catch(() => {
+      this.player = null;
+      bus.disconnect();
+      bus.connect(ctx.destination);
     });
   }
 

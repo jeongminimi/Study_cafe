@@ -88,6 +88,10 @@ const me = {
 };
 // 학습 흐름: idle → study → break → waiting(다음 세트 대기) → study … → idle
 const session = { state: 'idle', plan: null, set: 1, remainMs: 0, totalMs: 0, elapsedMs: 0, studiedMs: 0 };
+// 화면을 나가 있던 시간은 3시간까지만 학습 타이머에 센다.
+const AWAY_LIMIT = 3 * 3600000;
+const TOUCH_DEVICE = matchMedia('(pointer: coarse)').matches;
+let leftPage = false;
 const others = new Map();
 const npcs = [];
 // 내 자리에 붙은 쪽지. 서버가 없으므로 이번 접속 동안 자리에 앉아 있을 때만 남는다.
@@ -272,7 +276,7 @@ function checkOverflow() {
 }
 
 // ───── 내 행동 ─────
-function sitDown(i) {
+function sitDown(i, onSeated) {
   const owner = seatOwner(i);
   if (owner && !owner.isNpc) {
     if (!owner.isMe) toast(`${owner.name} 님이 앉아 있는 자리예요.`);
@@ -287,7 +291,9 @@ function sitDown(i) {
   me.target = { ...seats[i].approach };
   me.fig.goSit(seats[i], 'rest', () => {
     refreshDock();
-    if (me.seat === i) toast('휴식 상태로 앉았어요. 공부를 시작하려면 아래 학습 버튼을 누르세요.');
+    if (me.seat !== i) return;
+    if (onSeated) onSeated();
+    else toast('휴식 상태로 앉았어요. 공부를 시작하려면 아래 학습 버튼을 누르세요.');
   });
   renderTag(me);
   refreshDock();
@@ -504,6 +510,7 @@ function endSession() {
   if (session.state === 'idle') return;
   session.state = 'idle';
   session.plan = null;
+  store.set('session', null);
   sound.setDuck(false);
   closeAlert();
   flashText = '';
@@ -570,29 +577,60 @@ function finishBreak() {
   });
 }
 
+// 화면을 나갔다 오면 긴 시간이 한 번에 들어오므로, 단계가 끝나고 남은 시간은 다음 단계로 넘긴다.
 function tickSession(delta) {
-  if (session.state === 'idle') return;
-  if (session.state === 'study') {
-    if (me.mode !== 'study') return;
-    me.studyMs += delta;
-    session.studiedMs += delta;
-    session.elapsedMs += delta;
-    if (session.plan.study > 0) {
-      session.remainMs -= delta;
-      if (session.remainMs <= 0) finishStudy();
-    }
-  } else {
-    session.remainMs -= delta;
-    if (session.remainMs <= 0) {
-      if (session.state === 'break') finishBreak();
-      else {
-        closeAlert();
-        startSet(session.set + 1);
+  while (delta > 0 && session.state !== 'idle') {
+    const timed = session.state !== 'study' || session.plan.study > 0;
+    const step = timed ? Math.min(delta, Math.max(0, session.remainMs)) : delta;
+    delta -= step;
+    if (session.state === 'study') {
+      if (me.mode !== 'study') return;
+      me.studyMs += step;
+      session.studiedMs += step;
+      session.elapsedMs += step;
+      if (timed) {
+        session.remainMs -= step;
+        if (session.remainMs <= 0) finishStudy();
       }
-    } else if (alertLive) {
-      $('alertBody').textContent = alertLive();
+    } else {
+      session.remainMs -= step;
+      if (session.remainMs <= 0) {
+        if (session.state === 'break') finishBreak();
+        else {
+          closeAlert();
+          startSet(session.set + 1);
+        }
+      } else if (alertLive) {
+        $('alertBody').textContent = alertLive();
+      }
     }
   }
+}
+
+// 휴대폰은 화면을 나간 사이 페이지를 지우기도 하므로, 학습 상태를 저장해 다시 입장하면 이어 간다.
+function saveSession() {
+  if (session.state === 'idle' || me.seat < 0) {
+    store.set('session', null);
+    return;
+  }
+  store.set('session', { ...session, at: Date.now(), seat: me.seat, mode: me.mode });
+}
+
+function resumeSession() {
+  const saved = store.get('session', null);
+  const away = Date.now() - saved?.at;
+  if (!(away >= 0 && away < AWAY_LIMIT) || !['study', 'break', 'waiting'].includes(saved.state) || !seats[saved.seat] || !saved.plan) return false;
+  const { at, seat, mode, ...state } = saved;
+  sitDown(seat, () => {
+    Object.assign(session, state);
+    sound.setDuck(session.state !== 'study');
+    if (MODES[mode]) setMyMode(mode);
+    tickSession(Date.now() - at);
+    refreshDock();
+    updateClock();
+    toast('하던 학습을 이어서 시작했어요.');
+  });
+  return true;
 }
 
 // ───── 알림 ─────
@@ -636,13 +674,22 @@ function attention(title, body) {
     }
   }
 }
+function noteLeaving() {
+  leftPage = true;
+  if (!entered) return;
+  saveStudy();
+  saveSession();
+}
+window.addEventListener('pagehide', noteLeaving);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    flashText = '';
-    if (unseenNotes && me.mode !== 'study') toast(`보고 있지 않은 사이 쪽지 ${unseenNotes}장이 왔어요. 아래 쪽지 버튼을 눌러 보세요.`);
-    unseenNotes = 0;
-    updateClock();
+  if (document.hidden) {
+    noteLeaving();
+    return;
   }
+  flashText = '';
+  if (unseenNotes && me.mode !== 'study') toast(`보고 있지 않은 사이 쪽지 ${unseenNotes}장이 왔어요. 아래 쪽지 버튼을 눌러 보세요.`);
+  unseenNotes = 0;
+  tickClock();
 });
 
 // ───── 학습 설정창 ─────
@@ -899,11 +946,12 @@ function saveStudy() {
 // ───── 시계 ─────
 let lastClock = Date.now();
 let lastDate = dateKey();
-setInterval(() => {
+function tickClock() {
   const now = Date.now();
-  // 컴퓨터가 잠들었던 시간은 공부 시간에 넣지 않는다.
-  const delta = Math.min(now - lastClock, 5 * 60000);
+  // 화면을 나가 있던 시간은 세되, 컴퓨터가 화면을 켠 채 잠들었던 시간은 공부 시간에 넣지 않는다.
+  const delta = Math.min(now - lastClock, leftPage || TOUCH_DEVICE ? AWAY_LIMIT : 5 * 60000);
   lastClock = now;
+  if (!document.hidden) leftPage = false;
   if (!entered) return;
   if (lastDate !== dateKey()) {
     lastDate = dateKey();
@@ -911,11 +959,13 @@ setInterval(() => {
   }
   tickSession(delta);
   updateClock();
-}, 1000);
+}
+setInterval(tickClock, 1000);
 
 setInterval(() => {
   if (!entered) return;
   saveStudy();
+  saveSession();
   broadcast();
   refreshPeople();
   const key = timeKey();
@@ -1327,7 +1377,9 @@ $('entryForm').addEventListener('submit', async (e) => {
   refreshDock();
   refreshPeople();
   // 처음 들어온 사람에게만 사용방법을 잠깐 보여 주고, 닫힌 뒤에 소리 안내를 띄운다.
-  if (store.get('guideSeen', false)) {
+  if (resumeSession()) {
+    store.set('guideSeen', true);
+  } else if (store.get('guideSeen', false)) {
     toast('노란 동그라미가 있는 빈자리를 누르면 앉아요.');
     setTimeout(showSoundTip, 1800);
   } else {
@@ -1546,5 +1598,5 @@ $('entry').hidden = false;
 animate();
 
 if (params.has('debug')) {
-  window.__cafe = { me, others, npcs, seats, sound, games, sitDown, setMyMode, leaveSeat, walkMe, onPeerState, onNote, myNotes, setTopView, camera, controls, renderer, session, prefs, get net() { return net; } };
+  window.__cafe = { me, others, npcs, seats, sound, games, sitDown, setMyMode, leaveSeat, walkMe, onPeerState, onNote, myNotes, setTopView, camera, controls, renderer, session, prefs, tickClock, saveSession, get net() { return net; } };
 }
